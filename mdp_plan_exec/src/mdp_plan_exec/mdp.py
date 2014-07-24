@@ -276,7 +276,7 @@ class TopMapMdp(Mdp):
         self.new_transitions = [[[[False]*(self.n__actions + (5*doors)) for i in range(self.n_wait_states)] for j in range(self.n_door_states)] for k in range(self.n_waypoints)]
         self.new_rewards = [[[[0]*(self.n__actions + (5*doors)) for i in range(self.n_wait_states)] for j in range(self.n_door_states)] for k in range(self.n_waypoints)]
 
-
+	print 'something'
         state_index=0
         action_index=0
         door_id=0
