@@ -16,57 +16,32 @@ class Mdp(object):
     def __init__(self):
         #list of attributes of an MDP object
         self.top_map=''
-        self.initial_state=0
-        self.n_states=0
-        self.state_names=[]
-        self.n_props=0
-        self.n_door_props = []
         self.n_waypoint_props = 0
-        self.n_wait_props = []
-        self.props=[]
-        self.door_props = [[]]
         self.waypoint_props = []
-        self.wait_props = [[]]
         self.n_waypoint_actions=0
-        self.n_actions = 0
         self.waypoint_actions=[]
-        self.prop_map=[[]]
         self.waypoint_prop_map = [[]]
-        self.wait_prop_map = [[[]]]
-        self.door_prop_map = [[[]]]
         self.waypoint_transitions=[[]]
-        self.transitions = [[]]
         self.waypoint_transitions_transversal_count=[[]]
         self.waypoint_rewards=[[]]
         self.current_policy=[]
-        self.wait_state_names=[[]]
-        self.door_state_names=[[]]
         self.initial_waypoint = 0
         self.n_waypoints = 0
         self.waypoint_names = []
-        self.door_state = []
         self.door_ids=[]
         self.initial_door_state = 0
         self.n_door_states = 3
-        self.wait_state = []
         self.initial_wait_state = 0
         self.n_wait_states = 2
         self.n_doors = 0
-        self.states = [[[]]]
         self.n_edges = 0
-        self.check_actions = []
-        self.wait_actions = []
-        self.waypoints_actions_doors = []
-        self.door_actions = []
         self.door_open_probs = []
         self.normal_door_open_prob = 0.5
         self.door_wait_open_prob = []
-        self.door_target_waypoints = []
-        self.waypoints = []
         self.new_transitions = [[[[]]]]
         self.new_rewards = [[[[]]]]
         self.new_actions = []
-        self.n_new_actions =0
+        self.n_new_actions = 0
 
     def write_prism_model(self,file_name):
         f=open(file_name,'w')
@@ -74,19 +49,10 @@ class Mdp(object):
         #print 'test version'
         f.write('mdp\n \n')
         f.write('module M \n \n')
-        f.write('w:[0..'+str(self.n_waypoints-1)+'] init ' + str(self.initial_state) + ';\n')
+        f.write('w:[0..'+str(self.n_waypoints-1)+'] init ' + str(self.initial_waypoint) + ';\n')
         f.write('d:[0..'+str(self.n_door_states-1)+'] init ' + str(self.initial_door_state) + ';\n')
         f.write('t:[0..'+str(self.n_wait_states-1)+'] init ' + str(self.initial_wait_state) + ';\n \n')
 
-        # for i in range(0,self.n_waypoints):
-        #     for j in range(0,self.n_waypoint_actions):
-        #         current_trans_list=self.waypoint_transitions[i][j]
-        #         if current_trans_list:
-        #             if j not in self.door_actions:
-        #                 trans_string='[' + self.waypoint_actions[j] + '] w=' + str(i) + ' -> '
-        #                 for trans in current_trans_list:
-        #                     trans_string=trans_string + str(trans[1]) + ":(w'=" + str(trans[0]) + ') + '
-        #                 f.write(trans_string[:-3] + ';\n')
 
         for i in range(0,self.n_waypoints):
             for j in range(0,self.n_door_states):
@@ -104,23 +70,6 @@ class Mdp(object):
                                 trans_string = trans_string + str(trans[3]) + ":(w'=" + str(trans[0]) + " & d'=" + str(trans[1]) + " & t'=" + str(trans[2]) + ') + '
                             f.write(trans_string[:-3] + ';\n')
 
-
-        # i = 0
-        # for i in range(0,self.n_doors):
-        #     waypoint = str(self.waypoints_actions_doors[i][0])
-        #     door_prob = self.door_open_probs[i]
-        #     door_wait_prob = self.door_wait_open_probs[i]
-        #     f.write('[check_door' + waypoint + '] w=' + waypoint + ' & d=0 -> ' + str(1-door_prob) +
-        #             ":(w'=" + waypoint + " & d'=1) + " + str(door_prob) + ":(w'=" + waypoint + " & d'=2); \n" )
-        #     f.write('[wait_for_door' + waypoint + '] w=' + waypoint + ' & t=0 & d=0 -> ' + str(1-door_wait_prob) +
-        #             ":(w'=" + waypoint + " & t'=1 & d'=1) + " + str(door_wait_prob)  + ":(w'=" + waypoint + " & t'=1 & d'=2); \n")
-        #     f.write('[set_door' + waypoint + '_open] w=' + waypoint + ' & t=1 & d=2 -> '
-        #             + " 1.0:(w'=" + waypoint + " & d'=2 + t'=0; \n")
-        #     f.write('[enter_door' + waypoint + '] w=' + waypoint + ' & t=0 & d=2 -> '
-        #             + " 1.0:(w'=" + str(self.door_target_waypoints[i]) + " & d'=0 + t'=0; \n")
-        #     f.write('[set_door' + waypoint + '_closed] w=' + waypoint + ' & t=1 & d=1 -> '
-        #             + " 1.0:(w'=" + waypoint + " & d'=0 + t'=0; \n")
-        
         f.write('\nendmodule\n\n')
 
         i = 0
@@ -140,12 +89,6 @@ class Mdp(object):
         
         f.write('rewards "time"\n')
 
-        #outputs
-        # for i in range(0,self.n_waypoints):
-        #     for j in range(0,self.n_waypoint_actions):
-        #         if self.waypoint_rewards[i][j] != 0:
-        #             f.write('    [' + self.waypoint_actions[j] + '] w=' + str(i) + ':' + str(self.waypoint_rewards[i][j]) + ';\n')
-
         for i in range(0,self.n_waypoints):
             for j in range(0,self.n_door_states):
                 for k in range(0 , self.n_wait_states):
@@ -153,24 +96,13 @@ class Mdp(object):
                         if self.new_rewards[i][j][k][l] != 0:
                             f.write('    [' + self.new_actions[l] + '] w=' + str(i) + ' & d=' + str(j) + ' & t=' +
                                     str(k) + ':' + str(self.new_rewards[i][j][k][l]) + ';\n')
-
-
-
-        # for i in range(0, self.n_doors):
-        #     waypoint = str(self.waypoints_actions_doors[i][0])
-        #     #could modify so each door has its own set of timings. perhaps could even change by hour.
-        #     f.write('    [check_door' + waypoint + '] w=' + waypoint + ":3;\n" )
-        #     f.write('    [wait_for_door' + waypoint + '] w=' + waypoint +  ":3;\n")
-        #     f.write('    [set_door' + waypoint + '_open] w=' + waypoint + ":120;\n")
-        #     f.write('    [enter_door' + waypoint + '] w=' + waypoint +  ":20;\n")
-        #     f.write('    [set_door' + waypoint + '_closed] w=' + waypoint +  ":300;\n")
         
         f.write('endrewards\n')
         
         f.close()
         
     def set_initial_state(self,initial_state):
-        self.initial_state=initial_state
+        self.initial_waypoint=initial_state
 
     def set_initial_waypoint(self, initial_waypoint):
         self.initial_waypoint=initial_waypoint
@@ -183,7 +115,7 @@ class Mdp(object):
         
     def get_expected_edge_transversal_time(self,state_index,action_name):
         action_index=self.waypoint_actions.index(action_name)
-        return self.rewards[state_index][action_index]
+        return self.waypoint_rewards[state_index][action_index]
         
     def get_total_transversals(self,state_index,action_name):
         action_index=self.waypoint_actions.index(action_name)
@@ -202,71 +134,34 @@ class TopMapMdp(Mdp):
         top_nodes=self.read_top_map()
 
         self.normal_door_open_prob = 0.5
-        self.n_states=len(top_nodes)
         self.n_waypoints=len(top_nodes)
         self.n_door_states = 3
         self.n_wait_states = 2
-        self.state_names=[None]*self.n_states
         self.waypoint_names=[None]*self.n_waypoints
-        self.door_state_names=[None]*self.n_door_states
-        self.wait_state_names=[None]*self.n_wait_states
 
-        self.n_props=self.n_states
+        self.n_props=self.n_waypoints
         self.n_waypoint_props = self.n_waypoints
-        self.props=[None]*self.n_props
         self.waypoint_props = [None]*self.n_waypoint_props
-        self.prop_map=[[False]*self.n_props for i in range(self.n_states)]
         self.waypoint_prop_map=[[False]*self.n_waypoint_props for i in range(self.n_waypoints)]
-
-        self.n_wait_props = self.n_wait_states
-        self.wait_props = [None]*self.n_wait_props
-        self.wait_prop_map = [[False]*self.n_wait_props for i in range(self.n_wait_states)]
-        self.wait_state_names=[None]*self.n_wait_states
-        self.n_door_props = self.n_door_states
-        self.door_props = [None]*self.n_door_props
-        self.door_prop_map = [[False]*self.n_door_props for i in range(self.n_door_states)]
-        #self.wait_props[0] = 'door_not_waited'
-        #self.wait_props[1] = 'door_waited'
-        #self.door_props[0] = 'door_unknown'
-        #self.door_props[1] = 'door_closed'
-        #self.door_props[2] = 'door_open'
-        #self.wait_state_names[1] = 'waited_for_door'
-        #self.wait_state_names[0] = 'not_waited_for_door'
-        #self.door_state_names[0] = 'door_unknown'
-        #self.door_state_names[1] = 'door_closed'
-        #self.door_state_names[2] = 'door_open'
-        for i in range(0,self.n_props):
-            self.prop_map[i][i]=True
         for i in range(0,self.n_waypoint_props):
             self.waypoint_prop_map[i][i]=True
-        for i in range(0,self.n_wait_props):
-            self.wait_prop_map[i][i]=True
-        for i in range(0,self.n_door_props):
-            self.door_prop_map[i][i]=True
+
 
         i = 0
-        self.n_actions=0
         self.n_waypoint_actions=0
         for entry in top_nodes:
-            self.props[i]=entry[0].name
             self.waypoint_props[i]=entry[0].name
-            self.state_names[i]=entry[0].name
             self.waypoint_names[i]=entry[0].name
             self.n_waypoint_actions=self.n_waypoint_actions+len(entry[0].edges)
-            self.n_actions=self.n_actions+len(entry[0].edges)
             i=i+1
 
         i=0
         self.waypoint_rewards=[[0]*self.n_waypoint_actions for i in range(self.n_waypoints)]
-        self.rewards=[[0]*self.n_actions for i in range(self.n_states)]
         self.waypoint_transitions=[[False]*self.n_waypoint_actions for i in range(self.n_waypoints)]
-        self.transitions=[[False]*self.n_actions for i in range(self.n_states)]
         self.waypoint_transitions_transversal_count=[[0]*self.n_waypoint_actions for i in range(self.n_waypoints)]
-        self.transitions_transversal_count=[[0]*self.n_actions for i in range(self.n_states)]
         self.waypoint_actions=[None]*self.n_waypoint_actions
-        self.actions=[None]*self.n_actions
 
-        self.new_actions = [None]*self.n_actions
+        self.new_actions = [None]*self.n_waypoint_actions
 
         action_index=0
         state_index=0
@@ -274,19 +169,17 @@ class TopMapMdp(Mdp):
         for entry in top_nodes:
             current_edges=entry[0].edges
             for edge in current_edges:
-                self.new_actions[action_index] = 'goto_'+self.state_names[state_index] + '_' + edge.node
+                self.new_actions[action_index] = 'goto_'+self.waypoint_names[state_index] + '_' + edge.node
                 action_index=action_index+1
                 if edge.action == 'doorPassing':
                     doors += 1
             state_index=state_index+1
+        self.waypoint_actions = self.new_actions
 
-        self.new_transitions = [[[[False]*(self.n_actions + (5*doors)) for i in range(self.n_wait_states)] for j in range(self.n_door_states)] for k in range(self.n_waypoints)]
-        self.new_rewards = [[[[0]*(self.n_actions + (5*doors)) for i in range(self.n_wait_states)] for j in range(self.n_door_states)] for k in range(self.n_waypoints)]
+        self.new_transitions = [[[[False]*(self.n_waypoint_actions + (5*doors)) for i in range(self.n_wait_states)] for j in range(self.n_door_states)] for k in range(self.n_waypoints)]
+        self.new_rewards = [[[[0]*(self.n_waypoint_actions + (5*doors)) for i in range(self.n_wait_states)] for j in range(self.n_door_states)] for k in range(self.n_waypoints)]
         self.door_open_probs = [0]*doors
         self.door_wait_open_probs = [0]*doors
-        self.door_target_waypoints = [0]*doors
-        self.door_actions = [0]*doors
-        self.waypoints_actions_doors = [0]*doors
         self.n_doors = doors
 
         state_index=0
@@ -295,7 +188,7 @@ class TopMapMdp(Mdp):
         for entry in top_nodes:
             current_edges=entry[0].edges
             for edge in current_edges:
-                target_index=self.state_names.index(edge.node)
+                target_index=self.waypoint_names.index(edge.node)
                 print edge.action
                 if edge.action == 'doorPassing':
                     print 'adding door passing'
@@ -319,34 +212,20 @@ class TopMapMdp(Mdp):
                     self.new_actions.append('set_door' + str(door_id) + '_closed')
                     self.new_transitions[state_index][2][1][len(self.new_actions)-1] = [[state_index,0,0,1]]
                     self.new_rewards[state_index][2][1][len(self.new_actions)-1] = 300
-                    self.door_target_waypoints[door_id] = target_index
-                    self.door_actions[door_id] = action_index
-                    self.waypoints_actions_doors[door_id] = [state_index, action_index]
+                    #self.waypoints_actions_doors[door_id] = [state_index, action_index]
                     door_id += 1
                 elif edge.action == 'move_base' or edge.action == 'docking' or edge.action == 'undocking' :
                     print 'adding move base'
                     self.new_transitions[state_index][0][0][action_index] = [[target_index, 0, 0, 1]]
                     self.new_rewards[state_index][0][0][action_index] = 1
-                self.waypoint_actions[action_index]='goto_'+self.state_names[state_index] + '_' + edge.node
-                self.waypoint_transitions[state_index][action_index]= [[target_index,1]]
-                self.waypoint_rewards[state_index][action_index]=1
-                self.actions[action_index]='goto_'+self.state_names[state_index] + '_' + edge.node
-                self.transitions[state_index][action_index]= [[target_index,1]]
-                self.rewards[state_index][action_index]=1
+                    self.waypoint_transitions[state_index][action_index]= [[target_index,1]]
+                    self.waypoint_rewards[state_index][action_index]=1
                 action_index=action_index+1
 
 
             state_index=state_index+1
 
         self.n_new_actions = len(self.new_actions)
-    #given waypoint, door state, wait state, action, give the transition probability
-    #check 331 and 352
-    #use topological mdp
-
-    #0) use a proper transition function mapping state to actions
-    #1) get prism going
-    #2) send both to Bruno
-    #3) get info back
 
     def read_top_map(self):
         msg_store = MessageStoreProxy(collection='topological_maps')
@@ -380,16 +259,14 @@ class TopMapMdp(Mdp):
         n_data=len(message_list)
         n_unprocessed_data=n_data
 
-        
-        
-        for i in range(0,self.n_actions):
-            current_action=self.actions[i]
+        for i in range(0,self.n_waypoint_actions):
+            current_action=self.waypoint_actions[i]
             if 'goto' in current_action:
                 new_action_index = self.new_actions.index(current_action)
-                action_index=self.actions.index(current_action)
+                action_index=self.waypoint_actions.index(current_action)
                 current_action=current_action.split('_')
-                source_index=self.state_names.index(current_action[1])
-                target_index=self.state_names.index(current_action[2])
+                source_index=self.waypoint_names.index(current_action[1])
+                target_index=self.waypoint_names.index(current_action[2])
                 j=0
                 n_total_data=1
                 expected_time=0
@@ -401,7 +278,7 @@ class TopMapMdp(Mdp):
                     if current_action[1]==entry[0].origin and current_action[2]==entry[0].target and not entry[0].final_node == 'Unknown':
                         n_total_data=n_total_data+1
                         expected_time=expected_time+float(entry[0].operation_time)-float(entry[0].time_to_waypoint)
-                        outcomes_count[self.state_names.index(entry[0].final_node)]+=1
+                        outcomes_count[self.waypoint_names.index(entry[0].final_node)]+=1
                         total_outcomes_count=total_outcomes_count+1
                         del message_list[j]
                         n_unprocessed_data=n_unprocessed_data-1
@@ -409,15 +286,15 @@ class TopMapMdp(Mdp):
                         j=j+1
                 if n_total_data==1:
                     rospy.logwarn("No data for edge between waypoints " + current_action[1] + " and " + current_action[2] + ". Assuming it to be 20 seconds. Expected time between nodes will not be correct.")
-                    self.rewards[source_index][action_index]=20
+                    self.waypoint_rewards[source_index][action_index]=20
                     self.new_rewards[source_index][0][0][new_action_index] = 20
                 else:
-                    self.rewards[source_index][action_index]=expected_time/(total_outcomes_count-1)
+                    self.waypoint_rewards[source_index][action_index]=expected_time/(total_outcomes_count-1)
                     self.new_rewards[source_index][0][0][new_action_index]= expected_time/(total_outcomes_count-1)
-                    self.transitions_transversal_count[source_index][action_index]=total_outcomes_count-1
+                    self.waypoint_transitions_transversal_count[source_index][action_index]=total_outcomes_count-1
                     transition=None
                     new_transition=None
-                    for j in range(0,self.n_states):
+                    for j in range(0,self.n_waypoints):
                         count=outcomes_count[j]
                         if count > 0:
                             probability=float(count)/float(total_outcomes_count)
@@ -428,12 +305,12 @@ class TopMapMdp(Mdp):
                                 transition.append([j,probability])
                                 new_transition.append([j,0,0,probability])
                     if transition is not None:
-                        self.transitions[source_index][action_index]=transition
+                        self.waypoint_transitions[source_index][action_index]=transition
                         self.new_transitions[source_index][0][0][action_index] = new_transition
         
         
     def set_initial_state_from_name(self,state_name):
-        index=self.state_names.index(state_name)
+        index=self.waypoint_names.index(state_name)
         self.set_initial_state(index)
 
 
@@ -455,50 +332,46 @@ class ProductMdp(Mdp):
         
     def set_rewards_and_trans_count(self):
         
-        self.rewards=[[0]*self.n_actions for i in range(self.n_states)]
-        self.transitions_transversal_count=[[0]*self.n_actions for i in range(self.n_states)]
+        self.waypoint_rewards=[[0]*self.n_waypoint_actions for i in range(self.n_waypoints)]
+        self.waypoint_transitions_transversal_count=[[0]*self.n_waypoint_actions for i in range(self.n_waypoints)]
         
-        for i in range(0,self.n_states):
+        for i in range(0,self.n_waypoints):
             original_state_index=self.state_labels[i][1]
-            for j in range(0,self.n_actions):
-                original_action_index=self.original_mdp.actions.index(self.actions[j])
-                self.rewards[i][j]=self.original_mdp.rewards[original_state_index][original_action_index]
-                self.transitions_transversal_count[i][j]=self.original_mdp.transitions_transversal_count[original_state_index][original_action_index]
+            for j in range(0,self.n_waypoint_actions):
+                original_action_index=self.original_mdp.actions.index(self.waypoint_actions[j])
+                self.waypoint_rewards[i][j]=self.original_mdp.rewards[original_state_index][original_action_index]
+                self.waypoint_transitions_transversal_count[i][j]=self.original_mdp.transitions_transversal_count[original_state_index][original_action_index]
         
     def set_props(self):
-        self.n_props=self.original_mdp.n_props
-        self.props=self.original_mdp.props
+        self.n_waypoint_props=self.original_mdp.n_props
+        self.waypoint_props=self.original_mdp.props
         #self.props.append('ltl_goal')
         #self.n_props=self.n_props+1
         
-        self.prop_map=[[False]*self.n_props for i in range(self.n_states)]
+        self.waypoint_prop_map=[[False]*self.n_waypoint_props for i in range(self.n_waypoints)]
         
-        for i in range(0,self.n_states):
-            prop_line=self.original_mdp.prop_map[self.state_labels[i][1]]
+        for i in range(0,self.n_waypoints):
+            prop_line=self.original_mdp.waypoint_prop_map[self.state_labels[i][1]]
             prop_line.append(False)
-            self.prop_map[i]=prop_line
-        
+            self.waypoint_prop_map[i]=prop_line
 
-       
-        
-        
     
     def read_transitions(self,product_tra):
         f = open(product_tra, 'r')
         f.readline()
         
-        self.transitions=[[False]*self.n_actions for i in range(self.n_states)]
+        self.waypoint_transitions=[[False]*self.n_waypoint_actions for i in range(self.n_waypoints)]
         
         for line in f:
             line=line.split(' ')
             from_state=int(line[0])
             to_state=int(line[2])
             probability=float(line[3])
-            action=self.actions.index(line[4].rstrip('\n'))
-            if not self.transitions[from_state][action]:
-                self.transitions[from_state][action]= [[to_state,probability]]
+            action=self.waypoint_actions.index(line[4].rstrip('\n'))
+            if not self.waypoint_transitions[from_state][action]:
+                self.waypoint_transitions[from_state][action]= [[to_state,probability]]
             else:
-                self.transitions[from_state][action].append([to_state,probability])
+                self.waypoint_transitions[from_state][action].append([to_state,probability])
 
         f.close()        
             
@@ -507,14 +380,14 @@ class ProductMdp(Mdp):
         f = open(product_tra, 'r')
         f.readline()
         
-        self.actions=[]
-        self.n_actions=0
+        self.waypoint_actions=[]
+        self.n_waypoint_actions=0
         
         for line in f:
             current_action=line.split(' ')[-1].rstrip('\n')
-            if current_action not in self.actions:
-                self.actions.append(current_action)
-                self.n_actions=self.n_actions+1
+            if current_action not in self.waypoint_actions:
+                self.waypoint_actions.append(current_action)
+                self.n_waypoint_actions=self.n_waypoint_actions+1
                 
         f.close()                
     
@@ -524,7 +397,7 @@ class ProductMdp(Mdp):
         f = open(product_sta, 'r')
         f.readline()
         
-        self.n_states=0
+        self.n_waypoints=0
         self.state_labels=[]
         
         
@@ -540,7 +413,7 @@ class ProductMdp(Mdp):
             
             
             
-            self.n_states=self.n_states+1
+            self.n_waypoints=self.n_waypoints+1
             
         f.close()
         
@@ -569,7 +442,7 @@ class ProductMdp(Mdp):
                 if int(labels[i])==target_index:
                     self.goal_states.append(state_index)
                 if int(labels[i])==init_index:
-                    self.initial_state=state_index
+                    self.initial_waypoint=state_index
         
         f.close()
         
@@ -577,34 +450,34 @@ class ProductMdp(Mdp):
 
 
     def set_policy(self,policy_file):
-        self.policy=[None]*self.n_states
+        self.policy=[None]*self.n_waypoints
         f=open(policy_file,'r')
         f.readline()
         for line in f:
             line=line.split(' ')
             self.policy[int(line[0])]=line[3].strip('\n')
         print self.policy
-        self.publish_current_policy_mode(self.initial_state)
+        self.publish_current_policy_mode(self.initial_waypoint)
         f.close()    
                     
     
     def set_initial_state_from_name(self,state_name):
-        state_name_prop_index=self.props.index(state_name)
-        for i in range(0,self.n_states):
-            if self.props_map[i][state_name_prop_index] and self.state_labels[i][0]==self.state_labels[self.initial_state][0]:
+        state_name_prop_index=self.waypoint_props.index(state_name)
+        for i in range(0,self.n_waypoints):
+            if self.waypoint_prop_map[i][state_name_prop_index] and self.state_labels[i][0]==self.state_labels[self.initial_waypoint][0]:
                 self.set_initial_state(i)
                 return
         print "set initial state of product MDP error"
     
     
     def get_new_state(self,current_state,action,final_node):
-        action_index=self.actions.index(action)
-        possible_next_states=self.transitions[current_state][action_index]
+        action_index=self.waypoint_actions.index(action)
+        possible_next_states=self.waypoint_transitions[current_state][action_index]
         n_possible_next_states=len(possible_next_states)
         final_node_prop_index=self.props.index(final_node)
         for i in range(0,n_possible_next_states):
             next_possible_state=possible_next_states[i][0]
-            if self.prop_map[next_possible_state][final_node_prop_index]:
+            if self.waypoint_prop_map[next_possible_state][final_node_prop_index]:
                 self.publish_current_policy_mode(next_possible_state)
                 return next_possible_state
         return -1
@@ -615,7 +488,7 @@ class ProductMdp(Mdp):
         current_mode = self.state_labels[current_state][0]
         policy_msg = NavRoute()
         print current_mode
-        for i in range(0,self.n_states):
+        for i in range(0,self.n_waypoints):
             current_action = self.policy[i]
             if current_action is not None and self.state_labels[i][0] == current_mode:
                 action_split = current_action.split('_')
