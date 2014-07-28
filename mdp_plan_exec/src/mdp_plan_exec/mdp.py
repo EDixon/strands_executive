@@ -71,6 +71,7 @@ class Mdp(object):
     def write_prism_model(self,file_name):
         f=open(file_name,'w')
         #states
+        #print 'test version'
         f.write('mdp\n \n')
         f.write('module M \n \n')
         f.write('w:[0..'+str(self.n_waypoints-1)+'] init ' + str(self.initial_state) + ';\n')
