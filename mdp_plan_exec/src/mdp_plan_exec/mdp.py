@@ -197,10 +197,10 @@ class TopMapMdp(Mdp):
                     self.new_actions.append('check_door' + str(door_id))
                     self.new_transitions[state_index][0][0][len(self.new_actions)-1] = [[state_index,1,0,(1-self.door_open_probs[door_id])], [state_index,2,0, self.door_open_probs[door_id]]]
                     #print str(self.new_transitions[state_index][0][0][len(self.new_actions)-1])
-                    self.new_rewards[state_index][0][0][len(self.new_actions)-1] = 3
+                    self.new_rewards[state_index][0][0][len(self.new_actions)-1] = 1
                     self.new_actions.append('wait_for_door' + str(door_id))
                     self.new_transitions[state_index][1][0][len(self.new_actions)-1] = [[state_index,1,1,(1-self.door_wait_open_probs[door_id])],[state_index,2,1,self.door_wait_open_probs[door_id]]]
-                    self.new_rewards[state_index][1][0][len(self.new_actions)-1] = 3
+                    self.new_rewards[state_index][1][0][len(self.new_actions)-1] = 1
                     self.new_actions.append('set_door' + str(door_id) + '_open')
                     self.new_transitions[state_index][2][1][len(self.new_actions)-1] = [[state_index,2,0,1]]
                     self.new_rewards[state_index][2][1][len(self.new_actions)-1] = 120
@@ -208,8 +208,8 @@ class TopMapMdp(Mdp):
                     self.new_transitions[state_index][2][0][len(self.new_actions)-1] = [[target_index,0,0,1]]
                     self.new_rewards[state_index][2][0][len(self.new_actions)-1] = 15
                     self.new_actions.append('set_door' + str(door_id) + '_closed')
-                    self.new_transitions[state_index][2][1][len(self.new_actions)-1] = [[state_index,0,0,1]]
-                    self.new_rewards[state_index][2][1][len(self.new_actions)-1] = 300
+                    self.new_transitions[state_index][1][1][len(self.new_actions)-1] = [[state_index,1,0,1]]
+                    self.new_rewards[state_index][1][1][len(self.new_actions)-1] = 300
                     #self.waypoints_actions_doors[door_id] = [state_index, action_index]
                     door_id += 1
                 else:
