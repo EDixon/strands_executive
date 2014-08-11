@@ -311,13 +311,33 @@ class TopMapMdp(Mdp):
         self.set_initial_state(index)
         
     def set_reachability_policy(self, policy_file, product_sta):
-        
-        
+            #    self.policy = [[[[None] for i in range(self.n_wait_states)] for j in range(self.n_door_states)] for k in range(self.n_waypoints)]
+ 
         policy_f = open(policy_file, 'r')    
         sta_f = open(product_sta, 'r')
         
         n_states = int(policy_f.readline().split(' ')[0])
-        print n_states
+        sta_f.readline()
+        
+        sta_line = sta_f.readline()
+        [sta_state_id, state_labels] = sta_line.split(':')
+        for policy_line in policy_f:
+            [pol_state_id, foo, foo, action] = policy_line.split(' ')
+            action = action.rstrip('\n')
+            found_id = False
+            while not found_id:
+                if pol_state_id == sta_state_id:
+                    [foo, w, d, t] = state_labels.split(',')
+                    t = t[:-2]
+                    self.policy[int(w)][int(d)][int(t)] = action
+                    print w, d, t
+                    found_id = True
+                else:
+                    sta_line = sta_f.readline()
+                    [sta_state_id, state_labels] = sta_line.split(':')
+                
+                
+        
         
         
         
