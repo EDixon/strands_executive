@@ -178,7 +178,7 @@ class TopMapMdp(Mdp):
         self.door_wait_open_probs = [0]*doors
         self.n_doors = doors
         
-        self.policy = [[[[None] for i in range(self.n_wait_states)] for j in range(self.n_door_states)] for k in range(self.n_waypoints)]
+        self.policy = [[[None for i in range(self.n_wait_states)] for j in range(self.n_door_states)] for k in range(self.n_waypoints)]
 
         state_index=0
         action_index=0
@@ -330,7 +330,6 @@ class TopMapMdp(Mdp):
                     [foo, w, d, t] = state_labels.split(',')
                     t = t[:-2]
                     self.policy[int(w)][int(d)][int(t)] = action
-                    print w, d, t
                     found_id = True
                 else:
                     sta_line = sta_f.readline()
