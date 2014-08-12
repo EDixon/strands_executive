@@ -506,10 +506,44 @@ class MdpPlanner(object):
         self.executing_policy=True
         
         #while self.execute_policy, execute policy - eliot's code. ignore everything related to monitored_navigation in my current version, just call topological navigation and the check and wait actions
+
+        while current_mdp_state != goal and self.executing_policy and not rospy.is_shutdown():
+            #send navigation command to action server
+            #top_nav_goal=GotoNodeGoal()
+            #self.top_nav_action_client.send_goal(top_nav_goal)
+            #self.top_nav_action_client.wait_for_result()
+
+            #replan is state is not valid
+
+            #log failure
+
+            #abort if it fails too much
+
+
+        # self.monitored_nav_result=None
+        # timeout_counter=0
+        # while self.monitored_nav_result is None and self.executing_policy and timeout_counter < self.get_to_exact_pose_timeout:
+        #     rospy.sleep(0.5)
+        #     timeout_counter=timeout_counter+1
+        #
+        #
+        # if self.executing_policy:
+        #     self.executing_policy=False
+        #     if self.monitored_nav_result==GoalStatus.PREEMPTED:
+        #         self.mdp_navigation_action.set_preempted()
+        #         return
+        #     if self.monitored_nav_result==GoalStatus.SUCCEEDED and self.current_node == goal.target_id:
+        #         self.mdp_navigation_action.set_succeeded()
+        #         return
+        #     if self.monitored_nav_result==GoalStatus.ABORTED or self.monitored_nav_result is None or not self.current_node == goal.target_id:
+        #         rospy.logerr("Failure in getting to exact pose in goal waypoint")
+        #         self.mdp_navigation_action.set_aborted()
+        #         return
+
+
+
         print self.policy_handler.top_map_mdp.policy
         print "no execution implemented yet"
-        
-        
 
         self.mdp_navigation_action.set_succeeded()
         return
