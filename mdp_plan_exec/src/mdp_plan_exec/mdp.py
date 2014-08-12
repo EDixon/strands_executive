@@ -177,6 +177,8 @@ class TopMapMdp(Mdp):
         self.door_open_probs = [0]*doors
         self.door_wait_open_probs = [0]*doors
         self.n_doors = doors
+        
+        self.policy = [[[None for i in range(self.n_wait_states)] for j in range(self.n_door_states)] for k in range(self.n_waypoints)]
 
         state_index=0
         action_index=0
@@ -307,6 +309,37 @@ class TopMapMdp(Mdp):
     def set_initial_state_from_name(self,state_name):
         index=self.waypoint_names.index(state_name)
         self.set_initial_state(index)
+        
+    def set_reachability_policy(self, policy_file, product_sta):
+            #    self.policy = [[[[None] for i in range(self.n_wait_states)] for j in range(self.n_door_states)] for k in range(self.n_waypoints)]
+ 
+        policy_f = open(policy_file, 'r')    
+        sta_f = open(product_sta, 'r')
+        
+        n_states = int(policy_f.readline().split(' ')[0])
+        sta_f.readline()
+        
+        sta_line = sta_f.readline()
+        [sta_state_id, state_labels] = sta_line.split(':')
+        for policy_line in policy_f:
+            [pol_state_id, foo, foo, action] = policy_line.split(' ')
+            action = action.rstrip('\n')
+            found_id = False
+            while not found_id:
+                if pol_state_id == sta_state_id:
+                    [foo, w, d, t] = state_labels.split(',')
+                    t = t[:-2]
+                    self.policy[int(w)][int(d)][int(t)] = action
+                    found_id = True
+                else:
+                    sta_line = sta_f.readline()
+                    [sta_state_id, state_labels] = sta_line.split(':')
+                
+                
+        
+        
+        
+        
 
 
 
