@@ -16,7 +16,7 @@ class MdpPlannerClient(object):
     
     
     def main(self):
-        target_waypoint = "WayPoint4"
+        target_waypoint = "WayPoint1"
         nav_action_client = actionlib.SimpleActionClient('mdp_plan_exec/execute_policy', ExecutePolicyAction)
         nav_action_client.wait_for_server()
         rospy.loginfo(" ...done")

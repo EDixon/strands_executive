@@ -42,6 +42,7 @@ class Mdp(object):
         self.new_rewards = [[[[]]]]
         self.new_actions = []
         self.n_new_actions = 0
+        self.door_links = []
 
     def write_prism_model(self,file_name):
         f=open(file_name,'w')
@@ -180,6 +181,7 @@ class TopMapMdp(Mdp):
         
         self.policy = [[[None for i in range(self.n_wait_states)] for j in range(self.n_door_states)] for k in range(self.n_waypoints)]
 
+        self.door_links = [None]*self.n_doors
         state_index=0
         action_index=0
         door_id=0
@@ -212,6 +214,7 @@ class TopMapMdp(Mdp):
                     self.new_rewards[state_index][1][1][len(self.new_actions)-1] = 300
                     #self.waypoints_actions_doors[door_id] = [state_index, action_index]
                     door_id += 1
+                    self.door_links[door_id] = [[self.waypoint_names[state_index], edge.node]]
                 else:
                     self.new_transitions[state_index][0][0][action_index] = [[target_index, 0, 0, 1]]
                     self.new_rewards[state_index][0][0][action_index] = 1
@@ -243,7 +246,6 @@ class TopMapMdp(Mdp):
             message_list = msg_store.query(TopologicalNode._type, {}, query_meta)
 
         return message_list
-
 
 
     def update_nav_statistics(self):
@@ -336,10 +338,16 @@ class TopMapMdp(Mdp):
                     [sta_state_id, state_labels] = sta_line.split(':')
                 
                 
-        
-        
-        
-        
+    def get_waypoint_from_name(self, waypoint_name):
+        index = self.waypoint_names.index(waypoint_name)
+        return index
+
+    def get_goto_type(self, waypoint1, waypoint2):
+        transition = self.door_links[self.waypoint_names.index(waypoint1),self.waypoint_names.index(waypoint2)]
+        if transition is None:
+            return 'move_base'
+        else:
+            return 'door_passing'
 
 
 

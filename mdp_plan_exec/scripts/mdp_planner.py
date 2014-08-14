@@ -467,10 +467,9 @@ class MdpPlanner(object):
             #rospy.loginfo('adding possible blockage image to blog post')
             #e.body += ' Here is what I saw: \n\n![Image of the door](ObjectID(%s))' % img_id
         #self.msg_store_blog.insert(e)
-        
-        
+
     def execute_policy_cb(self,goal):
-        
+        rospy.loginfo("started policy execution")
         if self.learning_travel_times:
             self.preempt_learning_cb()
   
@@ -487,9 +486,7 @@ class MdpPlanner(object):
             print "task type not supported"
             self.mdp_navigation_action.set_aborted()
             return
-        
-                
-            
+
         feedback=ExecutePolicyFeedback()
         feedback.expected_time=float(self.policy_handler.prism_client.get_policy(goal.time_of_day,specification))
         self.mdp_navigation_action.publish_feedback(feedback)
@@ -504,50 +501,63 @@ class MdpPlanner(object):
         self.policy_handler.top_map_mdp.set_reachability_policy(result_dir + "/adv.tra", result_dir + "/prod.sta")
         
         self.executing_policy=True
-        
-        #while self.execute_policy, execute policy - eliot's code. ignore everything related to monitored_navigation in my current version, just call topological navigation and the check and wait actions
 
-        while current_mdp_state != goal and self.executing_policy and not rospy.is_shutdown():
-            #send navigation command to action server
-            #top_nav_goal=GotoNodeGoal()
-            #self.top_nav_action_client.send_goal(top_nav_goal)
-            #self.top_nav_action_client.wait_for_result()
+        current_waypoint = self.closest_node
+        self.executing_policy = True
+        while current_waypoint != goal.target_id and self.executing_policy and not rospy.is_shutdown():
+            new_action = self.get_next_action(self.policy_handler.top_map_mdp.get_waypoint_from_name(current_waypoint), 0, 0)
+            if new_action[0] == 'move_base':
+                top_nav_goal = GotoNodeGoal()
+                top_nav_goal.target= new_action[2]
+                self.top_nav_action_client.send_goal(top_nav_goal)
+                self.top_nav_action_client.wait_for_result()
+                current_waypoint = self.current_node
+            elif new_action[0] == 'none':
+                print 'No idea what to do, aborting'
+                self.mdp_navigation_action.set_aborted()
+                return
+            #elif new_action[0] == 'waiting':
+                #do waiting state
+                #etc
 
-            #replan is state is not valid
+            if self.nav_action_outcome=='fatal' or self.nav_action_outcome=='failed':
+                n_successive_fails=n_successive_fails+1
+            else:
+                n_successive_fails=0
 
-            #log failure
+            if n_successive_fails>4:
+                rospy.logerr("Five successive fails in topological navigation. Aborting...")
+                self.executing_policy=False
+                self.mon_nav_action_client.cancel_all_goals()
+                self.top_nav_action_client.cancel_all_goals()
+                self.mdp_navigation_action.set_aborted()
+                return
 
-            #abort if it fails too much
-
-
-        # self.monitored_nav_result=None
-        # timeout_counter=0
-        # while self.monitored_nav_result is None and self.executing_policy and timeout_counter < self.get_to_exact_pose_timeout:
-        #     rospy.sleep(0.5)
-        #     timeout_counter=timeout_counter+1
-        #
-        #
-        # if self.executing_policy:
-        #     self.executing_policy=False
-        #     if self.monitored_nav_result==GoalStatus.PREEMPTED:
-        #         self.mdp_navigation_action.set_preempted()
-        #         return
-        #     if self.monitored_nav_result==GoalStatus.SUCCEEDED and self.current_node == goal.target_id:
-        #         self.mdp_navigation_action.set_succeeded()
-        #         return
-        #     if self.monitored_nav_result==GoalStatus.ABORTED or self.monitored_nav_result is None or not self.current_node == goal.target_id:
-        #         rospy.logerr("Failure in getting to exact pose in goal waypoint")
-        #         self.mdp_navigation_action.set_aborted()
-        #         return
-
-
-
-        print self.policy_handler.top_map_mdp.policy
-        print "no execution implemented yet"
+        self.exp_times_handler.update_current_top_mdp(goal.time_of_day)
 
         self.mdp_navigation_action.set_succeeded()
         return
-        
+
+    def get_next_action(self, w, d, t):
+        next_action = self.policy_handler.top_map_mdp.policy[w][d][t]
+        split_action = next_action.split('_')
+        action_type = 'none'
+        initial_waypoint = 'none'
+        final_waypoint = 'none'
+        if split_action[0] == 'goto':
+            initial_waypoint = split_action[1]
+            final_waypoint = split_action[2]
+            action_type = self.policy_handler.top_map_mdp.get_goto_type(initial_waypoint, final_waypoint)
+        elif split_action[0] == 'wait':
+            action_type = 'waiting'
+            #action_type = 'none'
+        elif split_action[0] == 'check':
+            action_type = 'checking'
+            #action_type = 'none'
+        elif split_action[0] == 'set':
+            action_type = 'setting'
+            #action_type = 'none'
+        return [action_type, initial_waypoint, final_waypoint]
                 
     def preempt_policy_execution_cb(self):
         self.executing_policy=False
