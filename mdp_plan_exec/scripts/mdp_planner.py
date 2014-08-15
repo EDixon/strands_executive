@@ -468,7 +468,8 @@ class MdpPlanner(object):
             #e.body += ' Here is what I saw: \n\n![Image of the door](ObjectID(%s))' % img_id
         #self.msg_store_blog.insert(e)
 
-    def execute_policy_cb(self,goal):
+
+    def execute_policy_cb(self, goal):
         rospy.loginfo("started policy execution")
         if self.learning_travel_times:
             self.preempt_learning_cb()
@@ -504,22 +505,27 @@ class MdpPlanner(object):
 
         current_waypoint = self.closest_node
         self.executing_policy = True
+        n_successive_fails=0
         while current_waypoint != goal.target_id and self.executing_policy and not rospy.is_shutdown():
             new_action = self.get_next_action(self.policy_handler.top_map_mdp.get_waypoint_from_name(current_waypoint), 0, 0)
-            if new_action[0] == 'move_base':
+            print 'Action type: ' + new_action[0] + '_' + new_action[1] + '_' + new_action[2]
+            if new_action[0] == 'goto':
                 top_nav_goal = GotoNodeGoal()
                 top_nav_goal.target= new_action[2]
                 self.top_nav_action_client.send_goal(top_nav_goal)
                 self.top_nav_action_client.wait_for_result()
                 current_waypoint = self.current_node
-            elif new_action[0] == 'none':
+            else:
                 print 'No idea what to do, aborting'
                 self.mdp_navigation_action.set_aborted()
+                self.top_nav_action_client.cancel_all_goals()
+                self.executing_policy=False
                 return
             #elif new_action[0] == 'waiting':
                 #do waiting state
                 #etc
 
+            print 'Navigation outcome: ' + self.nav_action_outcome
             if self.nav_action_outcome=='fatal' or self.nav_action_outcome=='failed':
                 n_successive_fails=n_successive_fails+1
             else:
@@ -528,12 +534,9 @@ class MdpPlanner(object):
             if n_successive_fails>4:
                 rospy.logerr("Five successive fails in topological navigation. Aborting...")
                 self.executing_policy=False
-                self.mon_nav_action_client.cancel_all_goals()
                 self.top_nav_action_client.cancel_all_goals()
                 self.mdp_navigation_action.set_aborted()
                 return
-
-        self.exp_times_handler.update_current_top_mdp(goal.time_of_day)
 
         self.mdp_navigation_action.set_succeeded()
         return
@@ -547,7 +550,7 @@ class MdpPlanner(object):
         if split_action[0] == 'goto':
             initial_waypoint = split_action[1]
             final_waypoint = split_action[2]
-            action_type = self.policy_handler.top_map_mdp.get_goto_type(initial_waypoint, final_waypoint)
+            action_type = 'goto'
         elif split_action[0] == 'wait':
             action_type = 'waiting'
             #action_type = 'none'

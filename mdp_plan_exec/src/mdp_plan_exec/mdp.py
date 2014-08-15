@@ -42,7 +42,6 @@ class Mdp(object):
         self.new_rewards = [[[[]]]]
         self.new_actions = []
         self.n_new_actions = 0
-        self.door_links = []
 
     def write_prism_model(self,file_name):
         f=open(file_name,'w')
@@ -181,7 +180,6 @@ class TopMapMdp(Mdp):
         
         self.policy = [[[None for i in range(self.n_wait_states)] for j in range(self.n_door_states)] for k in range(self.n_waypoints)]
 
-        self.door_links = [None]*self.n_doors
         state_index=0
         action_index=0
         door_id=0
@@ -191,7 +189,7 @@ class TopMapMdp(Mdp):
                 target_index=self.waypoint_names.index(edge.node)
                 #print edge.action
                 if edge.action == 'doorPassing':
-                    print 'adding door passing'
+                    #print 'adding door passing'
                     #print '  '
                     #print str(door_id)
                     self.door_open_probs[door_id] = self.normal_door_open_prob
@@ -214,7 +212,6 @@ class TopMapMdp(Mdp):
                     self.new_rewards[state_index][1][1][len(self.new_actions)-1] = 300
                     #self.waypoints_actions_doors[door_id] = [state_index, action_index]
                     door_id += 1
-                    self.door_links[door_id] = [[self.waypoint_names[state_index], edge.node]]
                 else:
                     self.new_transitions[state_index][0][0][action_index] = [[target_index, 0, 0, 1]]
                     self.new_rewards[state_index][0][0][action_index] = 1
@@ -258,11 +255,11 @@ class TopMapMdp(Mdp):
         n_data=len(message_list)
         n_unprocessed_data=n_data
 
-        for i in range(0,self.n_waypoint_actions):
-            current_action=self.waypoint_actions[i]
+        for i in range(0,self.n_new_actions):
+            current_action=self.new_actions[i]
             if 'goto' in current_action:
                 new_action_index = self.new_actions.index(current_action)
-                action_index=self.waypoint_actions.index(current_action)
+                action_index=self.new_actions.index(current_action)
                 current_action=current_action.split('_')
                 source_index=self.waypoint_names.index(current_action[1])
                 target_index=self.waypoint_names.index(current_action[2])
@@ -341,13 +338,6 @@ class TopMapMdp(Mdp):
     def get_waypoint_from_name(self, waypoint_name):
         index = self.waypoint_names.index(waypoint_name)
         return index
-
-    def get_goto_type(self, waypoint1, waypoint2):
-        transition = self.door_links[self.waypoint_names.index(waypoint1),self.waypoint_names.index(waypoint2)]
-        if transition is None:
-            return 'move_base'
-        else:
-            return 'door_passing'
 
 
 
