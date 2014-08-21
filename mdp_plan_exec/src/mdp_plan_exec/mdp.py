@@ -9,6 +9,7 @@ from ros_datacentre.message_store import MessageStoreProxy
 from strands_navigation_msgs.msg import TopologicalNode
 from strands_navigation_msgs.msg import NavStatistics
 from strands_navigation_msgs.msg import NavRoute
+from geometry_msgs.msg import Pose
 
 
 class Mdp(object):
@@ -42,6 +43,8 @@ class Mdp(object):
         self.new_rewards = [[[[]]]]
         self.new_actions = []
         self.n_new_actions = 0
+        self.door_names = []
+        self.door_waypoints = []
 
     def write_prism_model(self,file_name):
         f=open(file_name,'w')
@@ -176,6 +179,8 @@ class TopMapMdp(Mdp):
         self.new_rewards = [[[[0]*(self.n_waypoint_actions + (5*doors)) for i in range(self.n_wait_states)] for j in range(self.n_door_states)] for k in range(self.n_waypoints)]
         self.door_open_probs = [0]*doors
         self.door_wait_open_probs = [0]*doors
+        self.door_names = [None]*doors
+        self.door_waypoints = [None]*doors
         self.n_doors = doors
         
         self.policy = [[[None for i in range(self.n_wait_states)] for j in range(self.n_door_states)] for k in range(self.n_waypoints)]
@@ -189,7 +194,7 @@ class TopMapMdp(Mdp):
                 target_index=self.waypoint_names.index(edge.node)
                 #print edge.action
                 if edge.action == 'doorPassing':
-                    print 'adding door passing'
+                    #print 'adding door passing'
                     #print '  '
                     #print str(door_id)
                     self.door_open_probs[door_id] = self.normal_door_open_prob
@@ -210,7 +215,8 @@ class TopMapMdp(Mdp):
                     self.new_actions.append('set_door' + str(door_id) + '_closed')
                     self.new_transitions[state_index][1][1][len(self.new_actions)-1] = [[state_index,1,0,1]]
                     self.new_rewards[state_index][1][1][len(self.new_actions)-1] = 300
-                    #self.waypoints_actions_doors[door_id] = [state_index, action_index]
+                    self.door_names[door_id] = ('door' + str(door_id))
+                    self.door_waypoints[door_id] = edge.node
                     door_id += 1
                 else:
                     self.new_transitions[state_index][0][0][action_index] = [[target_index, 0, 0, 1]]
@@ -245,7 +251,6 @@ class TopMapMdp(Mdp):
         return message_list
 
 
-
     def update_nav_statistics(self):
         msg_store = MessageStoreProxy()
 
@@ -256,11 +261,11 @@ class TopMapMdp(Mdp):
         n_data=len(message_list)
         n_unprocessed_data=n_data
 
-        for i in range(0,self.n_waypoint_actions):
-            current_action=self.waypoint_actions[i]
+        for i in range(0,self.n_new_actions):
+            current_action=self.new_actions[i]
             if 'goto' in current_action:
                 new_action_index = self.new_actions.index(current_action)
-                action_index=self.waypoint_actions.index(current_action)
+                action_index=self.new_actions.index(current_action)
                 current_action=current_action.split('_')
                 source_index=self.waypoint_names.index(current_action[1])
                 target_index=self.waypoint_names.index(current_action[2])
@@ -344,9 +349,19 @@ class TopMapMdp(Mdp):
             return False
         
         
-        
+    def get_waypoint_from_name(self, waypoint_name):
+        index = self.waypoint_names.index(waypoint_name)
+        return index
 
+    def get_door_pose_from_door_name(self, door_name):
+        door_index = self.door_ids.index(door_name)
+        door_pose = self.door_poses(door_index)
+        return door_pose
 
+    def get_door_waypoint_from_door_name(self, door_name):
+        door_index = self.door_ids.index(door_name)
+        waypoint = self.door_waypoints(door_index)
+        return waypoint
 
 class ProductMdp(Mdp):
 

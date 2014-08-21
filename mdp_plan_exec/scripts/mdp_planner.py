@@ -23,6 +23,8 @@ from actionlib_msgs.msg import GoalStatus
 from strands_navigation_msgs.msg import NavStatistics, MonitoredNavigationAction, MonitoredNavigationActionResult
 
 from ros_datacentre.message_store import MessageStoreProxy
+from scitos_apps_msgs import DoorCheckAction, DoorWaitGoal, DoorCheckGoal, DoorWaitAction
+from geometry_msgs.msg import PoseWithCovarianceStamped, Pose, Twist
 from robblog.msg import RobblogEntry
 import robblog.utils
 from sensor_msgs.msg import Image
@@ -48,7 +50,19 @@ class MdpPlanner(object):
         self.top_nav_action_client.wait_for_server()
         rospy.loginfo(" ...done")
         rospy.sleep(0.3)
-        
+
+        rospy.loginfo("Creating door checking client.")
+        self.door_check_action_client= SimpleActionClient('door_check', DoorCheckAction)
+        self.door_check_action_client.wait_for_server()
+        rospy.loginfo(" ...done")
+        rospy.sleep(0.3)
+
+        rospy.loginfo("Creating door waiting client.")
+        self.door_wait_action_client= SimpleActionClient('door_wait', DoorWaitAction)
+        self.door_wait_action_client.wait_for_server()
+        rospy.loginfo(" ...done")
+        rospy.sleep(0.3)
+
         rospy.loginfo("Creating monitored navigation client.")
         self.mon_nav_action_client= SimpleActionClient('monitored_navigation', MonitoredNavigationAction)
         self.mon_nav_action_client.wait_for_server()
@@ -467,10 +481,10 @@ class MdpPlanner(object):
             #rospy.loginfo('adding possible blockage image to blog post')
             #e.body += ' Here is what I saw: \n\n![Image of the door](ObjectID(%s))' % img_id
         #self.msg_store_blog.insert(e)
-        
-        
-    def execute_policy_cb(self,goal):
-        
+
+
+    def execute_policy_cb(self, goal):
+        rospy.loginfo("started policy execution")
         if self.learning_travel_times:
             self.preempt_learning_cb()
   
@@ -487,9 +501,7 @@ class MdpPlanner(object):
             print "task type not supported"
             self.mdp_navigation_action.set_aborted()
             return
-        
-                
-            
+
         feedback=ExecutePolicyFeedback()
         feedback.expected_time=float(self.policy_handler.prism_client.get_policy(goal.time_of_day,specification))
         self.mdp_navigation_action.publish_feedback(feedback)
@@ -504,16 +516,105 @@ class MdpPlanner(object):
         self.policy_handler.top_map_mdp.set_reachability_policy(result_dir + "/adv.tra", result_dir + "/prod.sta")
         
         self.executing_policy=True
-        
-        #while self.execute_policy, execute policy - eliot's code. ignore everything related to monitored_navigation in my current version, just call topological navigation and the check and wait actions
-        print self.policy_handler.top_map_mdp.policy
-        print "no execution implemented yet"
-        
-        
+
+        current_waypoint = self.closest_node
+        self.executing_policy = True
+        n_successive_fails=0
+        door_state = 0
+        wait_state = 0
+        while current_waypoint != goal.target_id and self.executing_policy and not rospy.is_shutdown():
+            new_action = self.get_next_action(self.policy_handler.top_map_mdp.get_waypoint_from_name(current_waypoint), door_state, wait_state)
+            #print 'Action type: ' + new_action[0] + '_' + new_action[1] + '_' + new_action[2]
+            if new_action[0] == 'goto':
+                top_nav_goal = GotoNodeGoal()
+                top_nav_goal.target= new_action[2]
+                self.top_nav_action_client.send_goal(top_nav_goal)
+                self.top_nav_action_client.wait_for_result()
+                current_waypoint = self.current_node
+                door_state = 0
+                wait_state = 0
+            elif new_action[0] == 'checking':
+                door_check_goal = DoorCheckGoal()
+                door_check_goal.pose = Pose()
+                door_goal = new_action[2]
+                door_check_goal = self.policy_handler.top_map_mdp.get_waypoint_pose(door_goal)
+                self.door_check_action_client.send_goal(door_check_goal)
+                self.door_check_action_client.wait_for_result()
+                door_status = self.door_check_action_client.get_state()
+                if door_status == True:
+                    door_state = 2
+                    wait_state = 0
+                else:
+                    door_state = 1
+                    wait_state = 0
+            elif new_action[0] == 'waiting':
+                door_wait_goal = DoorWaitGoal()
+                door_wait_goal.pose = Pose()
+                door_wait_goal.timeout = 10
+                door_goal = new_action[2]
+                door_wait_goal = self.policy_handler.top_map_mdp.get_waypoint_pose(door_goal)
+                self.door_wait_action_client.send_goal(door_wait_goal)
+                self.door_wait_action_client.wait_for_result()
+                door_status = self.door_check_action_client.get_state()
+                if door_status == True:
+                    door_state = 2
+                    wait_state = 1
+                else:
+                    door_state = 1
+                    wait_state = 1
+            elif new_action[0] == 'setting':
+                if new_action[2] == 'closed':
+                    door_state = 1
+                    wait_state = 0
+                if new_action[2] == 'open':
+                    door_state = 2
+                    wait_state = 0
+            else:
+                print 'No idea what to do, aborting'
+                self.mdp_navigation_action.set_aborted()
+                self.top_nav_action_client.cancel_all_goals()
+                self.executing_policy=False
+                return
+
+            print 'Navigation outcome: ' + self.nav_action_outcome
+            if self.nav_action_outcome=='fatal' or self.nav_action_outcome=='failed':
+                n_successive_fails=n_successive_fails+1
+            else:
+                n_successive_fails=0
+
+            if n_successive_fails>4:
+                rospy.logerr("Five successive fails in topological navigation. Aborting...")
+                self.executing_policy=False
+                self.top_nav_action_client.cancel_all_goals()
+                self.mdp_navigation_action.set_aborted()
+                return
 
         self.mdp_navigation_action.set_succeeded()
         return
-        
+
+    def get_next_action(self, w, d, t):
+        next_action = self.policy_handler.top_map_mdp.policy[w][d][t]
+        split_action = next_action.split('_')
+        action_type = 'none'
+        initial_waypoint = 'none'
+        final_waypoint = 'none'
+        if split_action[0] == 'goto':
+            initial_waypoint = split_action[1]
+            final_waypoint = split_action[2]
+            action_type = 'goto'
+        elif split_action[0] == 'wait':
+            action_type = 'waiting'
+            final_waypoint = self.policy_handler.top_map_mdp.get_door_waypoint_from_door_name(split_action[2])
+            #action_type = 'none'
+        elif split_action[0] == 'check':
+            action_type = 'checking'
+            final_waypoint = self.policy_handler.top_map_mdp.get_door_waypoint_from_door_name(split_action[1])
+            #action_type = 'none'
+        elif split_action[0] == 'set':
+            action_type = 'setting'
+            initial_waypoint = split_action[1]
+            final_waypoint = split_action[2]
+        return [action_type, initial_waypoint, final_waypoint]
                 
     def preempt_policy_execution_cb(self):
         self.executing_policy=False
