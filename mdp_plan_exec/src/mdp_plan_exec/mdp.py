@@ -341,12 +341,12 @@ class TopMapMdp(Mdp):
                     [sta_state_id, state_labels] = sta_line.split(':')
                 
                 
-        def get_waypoint_pose(self, waypoint_name):
-            for entry in self.top_nodes:
-                if waypoint_name == entry[0].name:
-                    return entry[0].pose
-            rospy.logwarn("cannot find waypoint pose: " + waypoint_name)
-            return False
+    def get_waypoint_pose(self, waypoint_name):
+        for entry in self.top_nodes:
+            if waypoint_name == entry[0].name:
+                return entry[0].pose
+        rospy.logwarn("cannot find waypoint pose: " + waypoint_name)
+        return False
         
         
     def get_waypoint_from_name(self, waypoint_name):
