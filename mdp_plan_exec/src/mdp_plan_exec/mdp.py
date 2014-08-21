@@ -127,10 +127,10 @@ class TopMapMdp(Mdp):
         self.initial_door_state = 0
         self.initial_wait_state = 0
 
-        top_nodes=self.read_top_map()
+        self.top_nodes=self.read_top_map()
 
         self.normal_door_open_prob = 0.5
-        self.n_waypoints=len(top_nodes)
+        self.n_waypoints=len(self.top_nodes)
         self.n_door_states = 3
         self.n_wait_states = 2
         self.waypoint_names=[None]*self.n_waypoints
@@ -145,7 +145,7 @@ class TopMapMdp(Mdp):
 
         i = 0
         self.n_waypoint_actions=0
-        for entry in top_nodes:
+        for entry in self.top_nodes:
             self.waypoint_props[i]=entry[0].name
             self.waypoint_names[i]=entry[0].name
             self.n_waypoint_actions=self.n_waypoint_actions+len(entry[0].edges)
@@ -162,7 +162,7 @@ class TopMapMdp(Mdp):
         action_index=0
         state_index=0
         doors=0
-        for entry in top_nodes:
+        for entry in self.top_nodes:
             current_edges=entry[0].edges
             for edge in current_edges:
                 self.new_actions[action_index] = 'goto_'+self.waypoint_names[state_index] + '_' + edge.node
@@ -183,7 +183,7 @@ class TopMapMdp(Mdp):
         state_index=0
         action_index=0
         door_id=0
-        for entry in top_nodes:
+        for entry in self.top_nodes:
             current_edges=entry[0].edges
             for edge in current_edges:
                 target_index=self.waypoint_names.index(edge.node)
@@ -336,7 +336,12 @@ class TopMapMdp(Mdp):
                     [sta_state_id, state_labels] = sta_line.split(':')
                 
                 
-        
+        def get_waypoint_pose(self, waypoint_name):
+            for entry in self.top_nodes:
+                if waypoint_name == entry[0].name:
+                    return entry[0].pose
+            rospy.logwarn("cannot find waypoint pose: " + waypoint_name)
+            return False
         
         
         
