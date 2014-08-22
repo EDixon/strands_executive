@@ -23,7 +23,7 @@ from actionlib_msgs.msg import GoalStatus
 from strands_navigation_msgs.msg import NavStatistics, MonitoredNavigationAction, MonitoredNavigationActionResult
 
 from ros_datacentre.message_store import MessageStoreProxy
-from scitos_apps_msgs import DoorCheckAction, DoorWaitGoal, DoorCheckGoal, DoorWaitAction
+from scitos_apps_msgs.msg import DoorCheckAction, DoorWaitGoal, DoorCheckGoal, DoorWaitAction
 from geometry_msgs.msg import PoseWithCovarianceStamped, Pose, Twist
 from robblog.msg import RobblogEntry
 import robblog.utils
@@ -509,9 +509,7 @@ class MdpPlanner(object):
             rospy.logerr("The goal is unattainable with the current forbidden nodes. Aborting...")
             self.mdp_navigation_action.set_aborted()
             return
-        result_dir=self.policy_handler.get_working_dir() + '/' + goal.time_of_day 
-        #product_mdp=ProductMdp(self.policy_handler.top_map_mdp,result_dir + '/prod.sta',result_dir + '/prod.lab',result_dir + '/prod.tra')
-        #product_mdp.set_policy(result_dir + '/adv.tra')
+        result_dir=self.policy_handler.get_working_dir() + '/' + goal.time_of_day
         
         self.policy_handler.top_map_mdp.set_reachability_policy(result_dir + "/adv.tra", result_dir + "/prod.sta")
         
@@ -524,49 +522,59 @@ class MdpPlanner(object):
         wait_state = 0
         while current_waypoint != goal.target_id and self.executing_policy and not rospy.is_shutdown():
             new_action = self.get_next_action(self.policy_handler.top_map_mdp.get_waypoint_from_name(current_waypoint), door_state, wait_state)
-            #print 'Action type: ' + new_action[0] + '_' + new_action[1] + '_' + new_action[2]
+            print ' '
+            print 'current state: ' + str(self.policy_handler.top_map_mdp.get_waypoint_from_name(current_waypoint)) + ' ' + str(door_state) + ' ' + str(wait_state)
+            print 'New action: ' + new_action[0] + '_' + new_action[1] + '_' + new_action[2]
             if new_action[0] == 'goto':
+                print 'Moving to new location'
                 top_nav_goal = GotoNodeGoal()
-                top_nav_goal.target= new_action[2]
+                top_nav_goal.target = new_action[2]
                 self.top_nav_action_client.send_goal(top_nav_goal)
                 self.top_nav_action_client.wait_for_result()
                 current_waypoint = self.current_node
                 door_state = 0
                 wait_state = 0
             elif new_action[0] == 'checking':
+                print 'Checking if door is open'
                 door_check_goal = DoorCheckGoal()
-                door_check_goal.pose = Pose()
                 door_goal = new_action[2]
-                door_check_goal = self.policy_handler.top_map_mdp.get_waypoint_pose(door_goal)
+                door_check_goal.target_pose.pose = self.policy_handler.top_map_mdp.get_waypoint_pose(door_goal)
                 self.door_check_action_client.send_goal(door_check_goal)
                 self.door_check_action_client.wait_for_result()
-                door_status = self.door_check_action_client.get_state()
-                if door_status == True:
+                door_status = self.door_check_action_client.get_result()
+                if door_status.is_open == True:
+                    print 'door is open'
                     door_state = 2
                     wait_state = 0
                 else:
+                    print 'door is closed'
                     door_state = 1
                     wait_state = 0
             elif new_action[0] == 'waiting':
+                print 'waiting for door'
                 door_wait_goal = DoorWaitGoal()
-                door_wait_goal.pose = Pose()
-                door_wait_goal.timeout = 10
+                #print dir(door_wait_goal)
                 door_goal = new_action[2]
-                door_wait_goal = self.policy_handler.top_map_mdp.get_waypoint_pose(door_goal)
+                door_wait_goal.target_pose.pose = self.policy_handler.top_map_mdp.get_waypoint_pose(door_goal)
+                door_wait_goal.timeout = 10
                 self.door_wait_action_client.send_goal(door_wait_goal)
                 self.door_wait_action_client.wait_for_result()
-                door_status = self.door_check_action_client.get_state()
-                if door_status == True:
+                door_status = self.door_wait_action_client.get_result()
+                if door_status.is_open == True:
+                    print 'door is open'
                     door_state = 2
                     wait_state = 1
                 else:
+                    print 'door is closed'
                     door_state = 1
                     wait_state = 1
             elif new_action[0] == 'setting':
                 if new_action[2] == 'closed':
+                    print 'door set to closed'
                     door_state = 1
                     wait_state = 0
                 if new_action[2] == 'open':
+                    print 'door set to open'
                     door_state = 2
                     wait_state = 0
             else:
@@ -589,6 +597,7 @@ class MdpPlanner(object):
                 self.mdp_navigation_action.set_aborted()
                 return
 
+        print 'got to goal'
         self.mdp_navigation_action.set_succeeded()
         return
 
@@ -598,7 +607,7 @@ class MdpPlanner(object):
         action_type = 'none'
         initial_waypoint = 'none'
         final_waypoint = 'none'
-        if split_action[0] == 'goto':
+        if split_action[0] == 'goto' or split_action[0] == 'takedoor':
             initial_waypoint = split_action[1]
             final_waypoint = split_action[2]
             action_type = 'goto'
