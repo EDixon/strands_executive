@@ -45,6 +45,7 @@ class Mdp(object):
         self.n_new_actions = 0
         self.door_names = []
         self.door_waypoints = []
+        self.nearside_door_waypoint_names = []
 
     def write_prism_model(self,file_name):
         f=open(file_name,'w')
@@ -184,6 +185,7 @@ class TopMapMdp(Mdp):
         self.door_wait_open_probs = [0]*doors
         self.door_names = [None]*doors
         self.door_waypoints = [None]*doors
+        self.nearside_door_waypoint_names = [None]*doors
         self.n_doors = doors
         self.new_actions = []
         
@@ -224,6 +226,7 @@ class TopMapMdp(Mdp):
                     self.new_rewards[state_index][1][1][len(self.new_actions)-1] = 300
                     self.door_names[door_id] = ('door' + str(door_id))
                     self.door_waypoints[door_id] = edge.node
+                    self.nearside_door_waypoint_names[door_id] = self.waypoint_names[state_index]
                     door_id += 1
                 else:
                     #print 'adding goto'
@@ -272,9 +275,12 @@ class TopMapMdp(Mdp):
         message_list = msg_store.query(NavStatistics._type, {}, query_meta)
         n_data=len(message_list)
         n_unprocessed_data=n_data
+        total_door_checks = 0
+        total_doors_open = 0
 
         for i in range(0,self.n_new_actions):
             current_action=self.new_actions[i]
+            #print 'Current action: ' + current_action
             if 'goto' in current_action:
                 new_action_index = self.new_actions.index(current_action)
                 action_index=self.waypoint_actions.index(current_action)
@@ -321,7 +327,146 @@ class TopMapMdp(Mdp):
                     if transition is not None:
                         self.waypoint_transitions[source_index][action_index]=transition
                         self.new_transitions[source_index][0][0][new_action_index] = new_transition
+            if 'takedoor' in current_action:
+                #print 'found door transition'
+                n_data = len(message_list)
+                n_unprocessed_data=n_data
+                new_action_index = self.new_actions.index(current_action)
+                current_action=current_action.split('_')
+                source_index=self.waypoint_names.index(current_action[1])
+                target_index=self.waypoint_names.index(current_action[2])
+                j=0
+                n_total_data=1
+                expected_time=0
+                total_outcomes_count=1 #total number of outcomes of the action
+                outcomes_count=[0]*self.n_waypoints #the number of times waypoint is an outcome for the current action
+                outcomes_count[target_index]=1
+                while j<n_unprocessed_data:
+                    entry=message_list[j]
+                    if current_action[1]==entry[0].origin and current_action[2]==entry[0].target and not entry[0].final_node == 'Unknown':
+                        n_total_data=n_total_data+1
+                        expected_time=expected_time+float(entry[0].operation_time)-float(entry[0].time_to_waypoint)
+                        outcomes_count[self.waypoint_names.index(entry[0].final_node)]+=1
+                        total_outcomes_count=total_outcomes_count+1
+                        del message_list[j]
+                        n_unprocessed_data=n_unprocessed_data-1
+                    else:
+                        j=j+1
+                if n_total_data==1:
+                    rospy.logwarn("No data for edge between door waypoints " + current_action[1] + " and " + current_action[2] + ". Assuming it to be 20 seconds. Expected time between nodes will not be correct.")
+                    self.new_rewards[source_index][2][0][new_action_index] = 20
+                else:
+                    self.new_rewards[source_index][2][0][new_action_index]= expected_time/(total_outcomes_count-1)
+                    self.waypoint_transitions_transversal_count[source_index][action_index]=total_outcomes_count-1
+                    new_transition=None
+                    for j in range(0,self.n_waypoints):
+                        count=outcomes_count[j]
+                        if count > 0:
+                            probability=float(count)/float(total_outcomes_count)
+                            if new_transition is None:
+                                new_transition = [[j,0,0,probability]]
+                            else:
+                                new_transition.append([j,0,0,probability])
+                    if new_transition is not None:
+                        self.new_transitions[source_index][0][0][new_action_index] = new_transition
+            if 'check' in current_action:
+                #print 'found a door check'
+                n_data = len(message_list)
+                n_unprocessed_data = n_data
+                new_action_index = self.new_actions.index(current_action)
+                current_action = current_action.split('_')
+                door_name = current_action[1]
+                door_index = self.door_names.index(door_name)
+                door_waypoint = self.nearside_door_waypoint_names[door_index]
+                waypoint_id = self.waypoint_names.index(door_waypoint)
+                j=0
+                total_data_count = 1
+                successes = 0
+                while j<n_unprocessed_data:
+                    entry = message_list[j]
+                    if door_waypoint == entry[0].origin and not entry[0].final_node == 'Unknown':
+                        #print 'data match found'
+                        total_data_count += 1
+                        total_door_checks += 1
+                        if entry[0].final_node == 'success':
+                            #print 'success found'
+                            successes += 1
+                            total_doors_open += 1
+                        del message_list[j]
+                        n_unprocessed_data = n_unprocessed_data - 1
+                    else:
+                        j = j + 1
+                new_transition = None
+                if total_data_count > 0 and successes > 0:
+                    success_probability = float(successes)/float(total_data_count)
+                    fail_probability = 1-success_probability
+                    new_transition = [[waypoint_id, 2, 0, success_probability]]
+                    new_transition.append([waypoint_id, 1, 0, fail_probability])
+                    self.new_transitions[waypoint_id, 0, 0, new_action_index] = new_transition
+                else:
+                    #in the case that there is no data or no success, assume a 50:50 chance
+                    #print 'adding new door check'
+                    new_transition = [[waypoint_id, 2, 0, 0.5]]
+                    new_transition.append([waypoint_id, 1, 0, 0.5])
+                    self.new_transitions[waypoint_id][0][0][new_action_index] = new_transition
+            if 'wait' in current_action:
+                print 'found a door wait'
+                n_data = len(message_list)
+                n_unprocessed_data = n_data
+                new_action_index = self.new_actions.index(current_action)
+                current_action = current_action.split('_')
+                door_name = current_action[2]
+                door_index = self.door_names.index(door_name)
+                door_waypoint = self.nearside_door_waypoint_names[door_index]
+                waypoint_id = self.waypoint_names.index(door_waypoint)
+                reset_action_fail = self.new_actions.index('set_' + door_name + '_closed')
+                reset_action_success = self.new_actions.index('set_' + door_name + '_open')
+                j=0
+                total_data_count = 0
+                successes = 0
+                failures = 0
+                total_failure_time = 0
+                total_success_time = 0
+                while j<n_unprocessed_data:
+                    entry = message_list[j]
+                    if door_waypoint == entry[0].origin and not entry[0].final_node == 'Unknown':
+                        #print 'data match found'
+                        total_data_count += 1
+                        if entry[0].final_node == 'success':
+                            #print 'success found'
+                            total_success_time=total_success_time+float(entry[0].operation_time)-float(entry[0].time_to_waypoint)
+                            successes += 1
+                        elif entry[0].final_node == 'failure':
+                            total_failure_time=total_failure_time+float(entry[0].operation_time)-float(entry[0].time_to_waypoint)
+                            failures += 1
+                        del message_list[j]
+                        n_unprocessed_data = n_unprocessed_data - 1
+                    else:
+                        j = j + 1
+                new_transition = None
+                if total_data_count > 0 and successes > 0:
+                    success_probability = float(successes)/float(total_data_count)
+                    fail_probability = 1-success_probability
+                    new_transition = [[waypoint_id, 2, 1, success_probability]]
+                    new_transition.append([waypoint_id, 1, 1, fail_probability])
+                    self.new_transitions[waypoint_id][1][0][new_action_index] = new_transition
+                    self.new_rewards[waypoint_id][2][1][reset_action_success]= total_success_time/successes
+                    if failures > 0:
+                        self.new_rewards[waypoint_id][1][1][reset_action_fail]= total_failure_time/failures
+                    else:
+                        self.new_rewards[waypoint_id][1][1][reset_action_fail]= 300
+                else:
+                    #in the case that there is no data or no success, assume a 50:50 chance
+                    print 'adding new door wait'
+                    new_transition = [[waypoint_id, 2, 1, 0.5]]
+                    new_transition.append([waypoint_id, 1, 1, 0.5])
+                    self.new_transitions[waypoint_id][1][0][new_action_index] = new_transition
+                    self.new_rewards[waypoint_id][2][1][reset_action_success]= 120
+                    self.new_rewards[waypoint_id][1][1][reset_action_fail]= 300
 
+
+        if total_doors_open > 0:
+            self.door_open_probs = total_doors_open/total_door_checks
 
     def set_initial_state_from_name(self,state_name):
         index=self.waypoint_names.index(state_name)
