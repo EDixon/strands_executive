@@ -3,11 +3,11 @@
 
 import sys
 import rospy
-
+import math
 
 from ros_datacentre.message_store import MessageStoreProxy
 from strands_navigation_msgs.msg import TopologicalNode
-from strands_navigation_msgs.msg import NavStatistics
+from strands_navigation_msgs.msg import NavStatistics, DoorWaitStats, DoorCheckStats
 from strands_navigation_msgs.msg import NavRoute
 from geometry_msgs.msg import Pose
 
@@ -171,7 +171,7 @@ class TopMapMdp(Mdp):
             for edge in current_edges:
                 if edge.action == 'doorPassing':
                     doors += 1
-                    self.waypoint_actions[action_index] = 'goto_'+self.waypoint_names[state_index] + '_' + edge.node
+                    self.waypoint_actions[action_index] = 'takedoor_'+self.waypoint_names[state_index] + '_' + edge.node
                     action_index=action_index+1
                 else:
                     #self.new_actions[action_index] = 'goto_'+self.waypoint_names[state_index] + '_' + edge.node
@@ -193,6 +193,7 @@ class TopMapMdp(Mdp):
 
         state_index=0
         action_index=0
+        waypoint_action_index = 0
         door_id=0
         for entry in self.top_nodes:
             current_edges=entry[0].edges
@@ -227,7 +228,10 @@ class TopMapMdp(Mdp):
                     self.door_names[door_id] = ('door' + str(door_id))
                     self.door_waypoints[door_id] = edge.node
                     self.nearside_door_waypoint_names[door_id] = self.waypoint_names[state_index]
+                    self.waypoint_transitions[state_index][waypoint_action_index]= [[target_index,1]]
+                    self.waypoint_rewards[state_index][waypoint_action_index]=1
                     door_id += 1
+                    waypoint_action_index += 1
                 else:
                     #print 'adding goto'
                     self.new_actions.append('goto_'+self.waypoint_names[state_index] + '_' + edge.node)
@@ -236,8 +240,9 @@ class TopMapMdp(Mdp):
                     #print 'waypoint: ' + str(state_index)
                     self.new_transitions[state_index][0][0][len(self.new_actions)-1] = [[target_index, 0, 0, 1]]
                     self.new_rewards[state_index][0][0][len(self.new_actions)-1] = 1
-                    self.waypoint_transitions[state_index][action_index]= [[target_index,1]]
-                    self.waypoint_rewards[state_index][action_index]=1
+                    self.waypoint_transitions[state_index][waypoint_action_index]= [[target_index,1]]
+                    self.waypoint_rewards[state_index][waypoint_action_index]=1
+                    waypoint_action_index += 1
                 action_index=action_index+1
 
 
@@ -273,11 +278,12 @@ class TopMapMdp(Mdp):
         query_meta["pointset"] = self.top_map
         #print self.top_map
         message_list = msg_store.query(NavStatistics._type, {}, query_meta)
+        wait_list = msg_store.query(DoorWaitStats._type, {}, query_meta)
+        check_list = msg_store.query(DoorCheckStats._type, {}, query_meta)
         n_data=len(message_list)
         n_unprocessed_data=n_data
         total_door_checks = 0
         total_doors_open = 0
-
         for i in range(0,self.n_new_actions):
             current_action=self.new_actions[i]
             #print 'Current action: ' + current_action
@@ -331,6 +337,7 @@ class TopMapMdp(Mdp):
                 #print 'found door transition'
                 n_data = len(message_list)
                 n_unprocessed_data=n_data
+                action_index=self.waypoint_actions.index(current_action)
                 new_action_index = self.new_actions.index(current_action)
                 current_action=current_action.split('_')
                 source_index=self.waypoint_names.index(current_action[1])
@@ -368,10 +375,11 @@ class TopMapMdp(Mdp):
                             else:
                                 new_transition.append([j,0,0,probability])
                     if new_transition is not None:
+                        self.waypoint_transitions[source_index][action_index]=transition
                         self.new_transitions[source_index][0][0][new_action_index] = new_transition
             if 'check' in current_action:
                 #print 'found a door check'
-                n_data = len(message_list)
+                n_data = len(check_list)
                 n_unprocessed_data = n_data
                 new_action_index = self.new_actions.index(current_action)
                 current_action = current_action.split('_')
@@ -383,16 +391,16 @@ class TopMapMdp(Mdp):
                 total_data_count = 1
                 successes = 0
                 while j<n_unprocessed_data:
-                    entry = message_list[j]
-                    if door_waypoint == entry[0].origin and not entry[0].final_node == 'Unknown':
+                    entry = check_list[j]
+                    if door_waypoint == entry[0].origin:
                         #print 'data match found'
                         total_data_count += 1
                         total_door_checks += 1
-                        if entry[0].final_node == 'success':
+                        if entry[0].is_open == True:
                             #print 'success found'
                             successes += 1
                             total_doors_open += 1
-                        del message_list[j]
+                        del check_list[j]
                         n_unprocessed_data = n_unprocessed_data - 1
                     else:
                         j = j + 1
@@ -411,7 +419,7 @@ class TopMapMdp(Mdp):
                     self.new_transitions[waypoint_id][0][0][new_action_index] = new_transition
             if 'wait' in current_action:
                 print 'found a door wait'
-                n_data = len(message_list)
+                n_data = len(wait_list)
                 n_unprocessed_data = n_data
                 new_action_index = self.new_actions.index(current_action)
                 current_action = current_action.split('_')
@@ -428,18 +436,18 @@ class TopMapMdp(Mdp):
                 total_failure_time = 0
                 total_success_time = 0
                 while j<n_unprocessed_data:
-                    entry = message_list[j]
-                    if door_waypoint == entry[0].origin and not entry[0].final_node == 'Unknown':
+                    entry = wait_list[j]
+                    if door_waypoint == entry[0].origin:
                         #print 'data match found'
                         total_data_count += 1
-                        if entry[0].final_node == 'success':
+                        if entry[0].opened == True:
                             #print 'success found'
-                            total_success_time=total_success_time+float(entry[0].operation_time)-float(entry[0].time_to_waypoint)
+                            total_success_time=total_success_time+(float(entry[0].end_wait_time)-float(entry[0].start_wait_time))
                             successes += 1
-                        elif entry[0].final_node == 'failure':
-                            total_failure_time=total_failure_time+float(entry[0].operation_time)-float(entry[0].time_to_waypoint)
+                        elif entry[0].opened == False:
+                            total_failure_time=total_failure_time+(float(entry[0].end_wait_time)-float(entry[0].start_wait_time))
                             failures += 1
-                        del message_list[j]
+                        del wait_list[j]
                         n_unprocessed_data = n_unprocessed_data - 1
                     else:
                         j = j + 1
@@ -471,6 +479,7 @@ class TopMapMdp(Mdp):
     def set_initial_state_from_name(self,state_name):
         index=self.waypoint_names.index(state_name)
         self.set_initial_state(index)
+        self.set_initial_waypoint(index)
         
     def set_reachability_policy(self, policy_file, product_sta):
             #    self.policy = [[[[None] for i in range(self.n_wait_states)] for j in range(self.n_door_states)] for k in range(self.n_waypoints)]
@@ -513,6 +522,15 @@ class TopMapMdp(Mdp):
         door_index = self.door_names.index(door_name)
         waypoint = self.door_waypoints[door_index]
         return waypoint
+
+    def get_door_closed_probability(self, waypoint_name, new_action):
+        waypoint_id = self.waypoint_names.index(waypoint_name)
+        new_action_index = self.new_actions.index(new_action)
+        transitions = self.new_transitions[waypoint_id][1][0][new_action_index]
+        for trans in transitions:
+            if (trans[1] == 1):
+                prob = trans[3]
+        return prob
 
 class ProductMdp(Mdp):
 

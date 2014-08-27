@@ -3,6 +3,7 @@
 import sys
 import rospy
 import os
+import math
 
 
 #from mdp_plan_exec.prism_client import PrismClient
@@ -231,18 +232,22 @@ class MdpPlanner(object):
         self.learning_travel_times=True
         timer=rospy.Timer(rospy.Duration(goal.timeout), self.finish_learning_callback,oneshot=True)
         n_successive_fails=0
-        
+        current_door_state = 0
+        current_wait_state = 0
         while self.learning_travel_times:
             if self.current_node == 'none' or self.current_node is None:
                 self.policy_handler.top_map_mdp.set_initial_state_from_name(self.closest_node) 
             else:
                 self.policy_handler.top_map_mdp.set_initial_state_from_name(self.current_node)
-            current_waypoint=self.policy_handler.top_map_mdp.initial_state
-            current_waypoint_trans=self.policy_handler.top_map_mdp.transitions[current_waypoint]
-            current_trans_count=self.policy_handler.top_map_mdp.transitions_transversal_count[current_waypoint]
+            current_waypoint=self.policy_handler.top_map_mdp.initial_waypoint
+            current_waypoint_trans=self.policy_handler.top_map_mdp.waypoint_transitions[current_waypoint]
+            current_trans_count=self.policy_handler.top_map_mdp.waypoint_transitions_transversal_count[current_waypoint]
+
+            #new transitions has action index of all actions
+            #waypoint_transitions_transversal_count has action index of waypoint actions only
             current_min=-1
             current_min_index=-1
-            for i in range(0,self.policy_handler.top_map_mdp.n_actions):
+            for i in range(0,self.policy_handler.top_map_mdp.n_waypoint_actions):
                 if current_waypoint_trans[i] is not False:
                     if current_min==-1:
                         current_min=current_trans_count[i]
@@ -250,28 +255,84 @@ class MdpPlanner(object):
                     elif current_trans_count[i]<current_min:
                         current_min=current_trans_count[i]
                         current_min_index=i
-            current_action=self.policy_handler.top_map_mdp.actions[current_min_index]
-            top_nav_goal=GotoNodeGoal()
-            top_nav_goal.target=current_action.split('_')[2]
-            self.top_nav_action_client.send_goal(top_nav_goal)
-            self.top_nav_action_client.wait_for_result()
-            
-            if self.nav_action_outcome=='fatal' or self.nav_action_outcome=='failed':
-                n_successive_fails=n_successive_fails+1
-            else:
-                n_successive_fails=0
-            
-            if n_successive_fails>10:
-                self.policy_handler.update_current_top_mdp('all_day')
-                self.learn_travel_times_action.set_aborted()
-                return
-            
-            self.policy_handler.top_map_mdp.transitions_transversal_count[current_waypoint][current_min_index]+=1
-            
+            current_action=self.policy_handler.top_map_mdp.actions[current_min_index][current_door_state][current_wait_state]
+            split_action = current_action.split('_')
+            if split_action[0] == 'goto':
+                print 'going somewhere'
+                top_nav_goal=GotoNodeGoal()
+                top_nav_goal.target=current_action.split('_')[2]
+                self.top_nav_action_client.send_goal(top_nav_goal)
+                self.top_nav_action_client.wait_for_result()
+                if self.nav_action_outcome=='fatal' or self.nav_action_outcome=='failed':
+                    n_successive_fails=n_successive_fails+1
+                else:
+                    n_successive_fails=0
+                if n_successive_fails>10:
+                    self.policy_handler.update_current_top_mdp('all_day')
+                    self.learn_travel_times_action.set_aborted()
+                    return
+                self.policy_handler.top_map_mdp.waypoint_transitions_transversal_count[current_waypoint][current_min_index]+=1
+            elif split_action[0] == 'takedoor':
+                print 'Checking if door is open'
+                door_check_goal = DoorCheckGoal()
+                door_goal = split_action[2]
+                door_check_goal.target_pose.pose = self.policy_handler.top_map_mdp.get_waypoint_pose(door_goal)
+                self.door_check_action_client.send_goal(door_check_goal)
+                self.door_check_action_client.wait_for_result()
+                door_status = self.door_check_action_client.get_result()
+                if door_status.is_open == True:
+                    print 'door is open'
+                    door_state = 2
+                else:
+                    print 'door is closed'
+                    door_state = 1
+                if door_state == 2:
+                    print 'going through door'
+                    top_nav_goal = GotoNodeGoal()
+                    top_nav_goal.target = split_action[2]
+                    self.top_nav_action_client.send_goal(top_nav_goal)
+                    self.top_nav_action_client.wait_for_result()
+                    current_waypoint = self.current_node
+                    door_state = 0
+                elif door_state == 1:
+                    attempts = 0
+                    while door_state == 1:
+                        attempts += 1
+                        print 'waiting for door'
+                        door_wait_goal = DoorWaitGoal()
+                        #print dir(door_wait_goal)
+                        door_goal = split_action[2]
+                        door_wait_goal.target_pose.pose = self.policy_handler.top_map_mdp.get_waypoint_pose(door_goal)
+                        door_wait_goal.timeout = 300
+                        self.door_wait_action_client.send_goal(door_wait_goal)
+                        self.door_wait_action_client.wait_for_result()
+                        door_status = self.door_wait_action_client.get_result()
+                        if door_status.is_open == True:
+                            print 'door is open'
+                            door_state = 2
+                            print 'going through door'
+                            top_nav_goal=GotoNodeGoal()
+                            top_nav_goal.target=split_action[2]
+                            self.top_nav_action_client.send_goal(top_nav_goal)
+                            self.top_nav_action_client.wait_for_result()
+                            if self.nav_action_outcome=='fatal' or self.nav_action_outcome=='failed':
+                                n_successive_fails=n_successive_fails+1
+                            else:
+                                n_successive_fails=0
+                            if n_successive_fails>10:
+                                self.policy_handler.update_current_top_mdp('all_day')
+                                self.learn_travel_times_action.set_aborted()
+                                return
+                            self.policy_handler.top_map_mdp.waypoint_transitions_transversal_count[current_waypoint][current_min_index]+=1
+                        else:
+                            print 'door is closed'
+                            door_state = 1
+                    door_state = 0
+                        # if attempts >= 5:
+                        #     door_state = 0
+                        #     attempts = 0
         self.exp_times_handler.update_current_top_mdp("all_day")    
-        timer.shutdown()    
-
-        
+        timer.shutdown()       
         
     def finish_learning_callback(self,event):
         self.policy_handler.update_current_top_mdp('all_day')
@@ -283,205 +344,9 @@ class MdpPlanner(object):
         self.policy_handler.update_current_top_mdp('all_day')
         self.top_nav_action_client.cancel_all_goals()
         self.learn_travel_times_action.set_preempted()
-        
-
-
-    
-   
-    #def execute_policy_cb(self,goal):
-        
-        #if self.learning_travel_times:
-            #self.preempt_learning_cb()
-        
-        
-        #rospy.set_param('/topological_navigation/mode', 'Node_to_IZ')
-        #if self.current_node == 'none' or self.current_node is None:
-            #self.policy_handler.top_map_mdp.set_initial_state_from_name(self.closest_node) 
-        #else:
-            #self.policy_handler.top_map_mdp.set_initial_state_from_name(self.current_node)
-        #self.policy_handler.update_current_top_mdp(goal.time_of_day)
-        #if goal.task_type==ExecutePolicyGoal.GOTO_WAYPOINT:
-            #if goal.target_id in self.forbidden_waypoints:
-                #rospy.logerr("The goal is a forbidden waypoint. Aborting")
-                #self.mdp_navigation_action.set_aborted()
-                #return
-            #if self.forbidden_waypoints==[]:
-                #specification='R{"time"}min=? [ (F "' + goal.target_id + '") ]'
-            #else:
-                #specification='R{"time"}min=? [ (' + self.forbidden_waypoints_ltl_string + ' U "' + goal.target_id + '") ]'
-        #elif goal.task_type==ExecutePolicyGoal.LEAVE_FORBIDDEN_AREA:
-            #if self.forbidden_waypoints==[]:
-                #rospy.logerr("No forbidden waypoints defined. Nothing to leave.")
-                #self.mdp_navigation_action.set_aborted()
-                #return
-            #elif self.closest_node not in self.forbidden_waypoints:
-                #rospy.logerr(self.closest_node + " is not a forbidden waypoint. Staying here.")
-                #self.mdp_navigation_action.set_aborted()
-                #return
-            #else:
-                #specification='R{"time"}min=? [ (F ' + self.forbidden_waypoints_ltl_string + ') ]'
-        #elif goal.task_type==ExecutePolicyGoal.GOTO_CLOSEST_SAFE_WAYPOINT:
-            #if self.safe_waypoints==[]:
-                #rospy.logerr("No safe waypoints defined. Nowhere to go to.")
-                #self.mdp_navigation_action.set_aborted()
-                #return
-            #elif self.current_node  in self.safe_waypoints:
-                #rospy.logerr(self.closest_node + " is already a safe waypoint. Staying here.")
-                #self.mdp_navigation_action.set_aborted()
-                #return
-            #else:
-                #specification='R{"time"}min=? [ (F ' + self.safe_waypoints_ltl_string + ') ]'
-                
-            
-        #feedback=ExecutePolicyFeedback()
-        #feedback.expected_time=float(self.policy_handler.prism_client.get_policy(goal.time_of_day,specification))
-        #self.mdp_navigation_action.publish_feedback(feedback)
-        #if feedback.expected_time==float("inf"):
-            #rospy.logerr("The goal is unattainable with the current forbidden nodes. Aborting...")
-            #self.mdp_navigation_action.set_aborted()
-            #return
-        #result_dir=self.policy_handler.get_working_dir() + '/' + goal.time_of_day 
-        #product_mdp=ProductMdp(self.policy_handler.top_map_mdp,result_dir + '/prod.sta',result_dir + '/prod.lab',result_dir + '/prod.tra')
-        #product_mdp.set_policy(result_dir + '/adv.tra')
-        
-        #self.executing_policy=True
-        #current_mdp_state=product_mdp.initial_state
-        #if current_mdp_state in product_mdp.goal_states:
-            #rospy.set_param('/topological_navigation/mode', 'Normal')
-            #top_nav_goal=GotoNodeGoal()
-            #top_nav_goal.target=goal.target_id
-            #self.top_nav_action_client.send_goal(top_nav_goal)
-            #self.top_nav_action_client.wait_for_result()
-            #result=self.top_nav_action_client.get_state()
-            #if result==GoalStatus.SUCCEEDED:
-                #self.mdp_navigation_action.set_succeeded()
-            #if result==GoalStatus.ABORTED:
-                #rospy.logerr("Failure in getting to exact pose in goal waypoint")
-                #self.mdp_navigation_action.set_aborted()
-            #if result==GoalStatus.PREEMPTED:
-                #self.mdp_navigation_action.set_preempted()
-            #return
-
-            
-            
-        
-        #n_successive_fails=0
-        #while current_mdp_state not in product_mdp.goal_states and self.executing_policy and not rospy.is_shutdown():
-            #current_action=product_mdp.policy[current_mdp_state]
-            #expected_edge_transversal_time=product_mdp.get_expected_edge_transversal_time(current_mdp_state,current_action)
-            #top_nav_goal=GotoNodeGoal()
-            #split_action=current_action.split('_')
-            #self.origin_waypoint=split_action[1]
-            #self.target_waypoint=split_action[2]
-            #top_nav_goal.target=self.target_waypoint
-            #timer=rospy.Timer(rospy.Duration(4*expected_edge_transversal_time), self.unexpected_trans_time_cb,oneshot=True)
-            #self.top_nav_action_client.send_goal(top_nav_goal)
-            #self.top_nav_action_client.wait_for_result()
-            #if self.current_node == 'none' or self.current_node is None:
-                #current_mdp_state=product_mdp.get_new_state(current_mdp_state,current_action,self.closest_node)
-            #else:
-                #current_mdp_state=product_mdp.get_new_state(current_mdp_state,current_action,self.current_node)
-             
-            #timer.shutdown()
-            
-            
-            #if current_mdp_state==-1 and self.executing_policy:
-                #rospy.logwarn('State transition is not in MDP model! Replanning...')
-                #self.mon_nav_action_client.cancel_all_goals()
-                #self.top_nav_action_client.cancel_all_goals()
-                #if self.current_node == 'none' or self.current_node is None:
-                    #self.policy_handler.top_map_mdp.set_initial_state_from_name(self.closest_node) 
-                #else:
-                    #self.policy_handler.top_map_mdp.set_initial_state_from_name(self.current_node)
-                #self.policy_handler.update_current_top_mdp(goal.time_of_day)
-                #feedback.expected_time=float(self.policy_handler.prism_client.get_policy(goal.time_of_day,specification))
-                #self.mdp_navigation_action.publish_feedback(feedback)
-                #if feedback.expected_time==float("inf"):
-                    #rospy.logerr("The goal is unattainable with the current forbidden nodes. Aborting...")
-                    #self.mdp_navigation_action.set_aborted()
-                    #return
-                #product_mdp=ProductMdp(self.policy_handler.top_map_mdp,result_dir + '/prod.sta',result_dir + '/prod.lab',result_dir + '/prod.tra')
-                #product_mdp.set_policy(result_dir + '/adv.tra')
-                #current_mdp_state=product_mdp.initial_state
-                #if current_mdp_state in product_mdp.goal_states:
-                    #rospy.set_param('/topological_navigation/mode', 'Normal')
-                    #top_nav_goal=GotoNodeGoal()
-                    #top_nav_goal.target=goal.target_id
-                    #self.top_nav_action_client.send_goal(top_nav_goal)
-
-            #if self.nav_action_outcome=='fatal' or self.nav_action_outcome=='failed':
-                #n_successive_fails=n_successive_fails+1
-            #else:
-                #n_successive_fails=0
-            
-            #if n_successive_fails>4:
-                #rospy.logerr("Five successive fails in topological navigation. Aborting...")
-                #self.executing_policy=False
-                #self.mon_nav_action_client.cancel_all_goals()
-                #self.top_nav_action_client.cancel_all_goals()
-                #self.mdp_navigation_action.set_aborted()
-                #return
-                
-        
-        #self.exp_times_handler.update_current_top_mdp(goal.time_of_day)
-        
-        #self.monitored_nav_result=None
-        #timeout_counter=0
-        #while self.monitored_nav_result is None and self.executing_policy and timeout_counter < self.get_to_exact_pose_timeout:     
-            #rospy.sleep(0.5)
-            #timeout_counter=timeout_counter+1
-        
-        
-        #if self.executing_policy:
-            #self.executing_policy=False
-            #if self.monitored_nav_result==GoalStatus.PREEMPTED:
-                #self.mdp_navigation_action.set_preempted()
-                #return
-            #if self.monitored_nav_result==GoalStatus.SUCCEEDED and self.current_node == goal.target_id:
-                #self.mdp_navigation_action.set_succeeded()
-                #return
-            #if self.monitored_nav_result==GoalStatus.ABORTED or self.monitored_nav_result is None or not self.current_node == goal.target_id:
-                #rospy.logerr("Failure in getting to exact pose in goal waypoint")
-                #self.mdp_navigation_action.set_aborted()
-                #return
-            
-
  
     def get_monitored_nav_status_cb(self,msg):
         self.monitored_nav_result=msg.status.status
-        
- 
- 
-            
-    #def preempt_policy_execution_cb(self):
-        #self.executing_policy=False
-        #self.mon_nav_action_client.cancel_all_goals()
-        #self.top_nav_action_client.cancel_all_goals()
-        #self.mdp_navigation_action.set_preempted()
-        
-        
-    #def unexpected_trans_time_cb(self,event):
-        #last_stuck_image = None
-        #image_topic =  '/head_xtion/rgb/image_color'
-        ##image_topic =  '/head_xtion/rgb/image_mono'  #simulation topic
-        
-        ##count = 0
-        ##while self.last_stuck_image == None and  not rospy.is_shutdown() and count < 10:
-            ##rospy.loginfo('waiting for image of possible blocked path %s' % count)
-            ##count += 1
-            ##rospy.sleep(1)
-            
-        #last_stuck_image=rospy.wait_for_message(image_topic, Image , timeout=10.0)
-            
-        #e = RobblogEntry(title=datetime.datetime.now().strftime("%H:%M:%S") + ' - Possible Blocked Path')
-        #e.body = 'It took me a lot more time to go between ' + self.origin_waypoint + ' and ' + self.target_waypoint + ' than I was expecting. Something might be blocking the way.'
-            
-        #if last_stuck_image != None:
-            #img_id = self.msg_store_blog.insert(last_stuck_image)
-            #rospy.loginfo('adding possible blockage image to blog post')
-            #e.body += ' Here is what I saw: \n\n![Image of the door](ObjectID(%s))' % img_id
-        #self.msg_store_blog.insert(e)
-
 
     def execute_policy_cb(self, goal):
         rospy.loginfo("started policy execution")
@@ -520,8 +385,10 @@ class MdpPlanner(object):
         n_successive_fails=0
         door_state = 0
         wait_state = 0
+        total_waits = 0
         while current_waypoint != goal.target_id and self.executing_policy and not rospy.is_shutdown():
-            new_action = self.get_next_action(self.policy_handler.top_map_mdp.get_waypoint_from_name(current_waypoint), door_state, wait_state)
+            waypoint_id = self.policy_handler.top_map_mdp.get_waypoint_from_name(current_waypoint)
+            new_action = self.get_next_action(waypoint_id, door_state, wait_state)
             print ' '
             print 'current state: ' + str(self.policy_handler.top_map_mdp.get_waypoint_from_name(current_waypoint)) + ' ' + str(door_state) + ' ' + str(wait_state)
             print 'New action: ' + new_action[0] + '_' + new_action[1] + '_' + new_action[2]
@@ -556,7 +423,7 @@ class MdpPlanner(object):
                 #print dir(door_wait_goal)
                 door_goal = new_action[2]
                 door_wait_goal.target_pose.pose = self.policy_handler.top_map_mdp.get_waypoint_pose(door_goal)
-                door_wait_goal.timeout = 10
+                door_wait_goal.timeout = 300
                 self.door_wait_action_client.send_goal(door_wait_goal)
                 self.door_wait_action_client.wait_for_result()
                 door_status = self.door_wait_action_client.get_result()
@@ -568,14 +435,27 @@ class MdpPlanner(object):
                     print 'door is closed'
                     door_state = 1
                     wait_state = 1
+                    total_waits += 1
+                    closed_prob = self.policy_handler.top_map_mdp.get_door_closed_probability(current_waypoint, self.policy_handler.top_map_mdp.policy[waypoint_id][1][0])
+                    k = math.log(0.05, closed_prob)
+                    print 'Attempts before replan: ' + str(k)
+                    print 'Current attempts: ' + str(total_waits)
+                    if total_waits >= k:
+                        print 'Tried the door a significant number of times, replanning'
+                        self.policy_handler.update_current_top_mdp(goal.time_of_day)
+                        feedback.expected_time=float(self.policy_handler.prism_client.get_policy(goal.time_of_day,specification))
+                        if feedback.expected_time==float("inf"):
+                            rospy.logerr("The goal is unattainable with the current forbidden nodes. Aborting...")
+                            self.mdp_navigation_action.set_aborted()
+                            return
             elif new_action[0] == 'setting':
-                if new_action[2] == 'closed':
-                    print 'door set to closed'
-                    door_state = 1
-                    wait_state = 0
                 if new_action[2] == 'open':
                     print 'door set to open'
                     door_state = 2
+                    wait_state = 0
+                if new_action[2] == 'closed':
+                    print 'door set to closed'
+                    door_state = 1
                     wait_state = 0
             else:
                 print 'No idea what to do, aborting'
