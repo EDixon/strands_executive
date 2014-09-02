@@ -4,6 +4,7 @@
 import sys
 import rospy
 import math
+import copy
 
 from ros_datacentre.message_store import MessageStoreProxy
 from strands_navigation_msgs.msg import TopologicalNode
@@ -249,6 +250,46 @@ class TopMapMdp(Mdp):
             state_index=state_index+1
 
         self.n_new_actions = len(self.new_actions)
+
+    def generate_door_lists(self):
+        n_doors = 4
+        n_door_states = 3
+        old_array = []
+        k = 0
+        for i in range(n_door_states):
+            old_array.append([i])
+        for d in range(n_doors - 1):
+            new_array = []
+            for i in range(n_door_states):
+                for j in range(len(old_array)):
+                    new_array.append(copy.copy(old_array[j]))
+                    new_array[k].append(i)
+                    k += 1
+            old_array = new_array
+            k=0
+        return old_array
+
+    def generate_door_ids(self):
+        door_states = self.generate_door_lists()
+        door_ids = [0]*len(door_states)
+        for i in range(0, len(door_states)):
+            door_states[i] = self.ternary_to_decimal(door_states[i])
+        return door_states
+
+    def ternary_to_decimal(self, doors):
+        n_doors = len(doors)
+        dec = 0
+        for i in range(n_doors):
+            dec = dec + doors[i]*pow(3, i)
+        return dec
+
+    def decimal_to_ternary(self, state):
+        doors = []
+        remainder = 0
+        while state > 0:
+            state , remainder = divmod(state, 3)
+            doors.append(remainder)
+        return doors
 
     def read_top_map(self):
         msg_store = MessageStoreProxy(collection='topological_maps')
