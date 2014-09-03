@@ -6,7 +6,7 @@ import rospy
 import math
 import copy
 
-from ros_datacentre.message_store import MessageStoreProxy
+from mongodb_store.message_store import MessageStoreProxy
 from strands_navigation_msgs.msg import TopologicalNode
 from strands_navigation_msgs.msg import NavStatistics, DoorWaitStats, DoorCheckStats
 from strands_navigation_msgs.msg import NavRoute
@@ -47,6 +47,9 @@ class Mdp(object):
         self.door_names = []
         self.door_waypoints = []
         self.nearside_door_waypoint_names = []
+        self.n_unique_doors = 0
+        self.unique_doors = [[]]
+        self.unique_door_ids = []
 
     def write_prism_model(self,file_name):
         f=open(file_name,'w')
@@ -55,10 +58,10 @@ class Mdp(object):
         f.write('mdp\n \n')
         f.write('module M \n \n')
         f.write('w:[0..'+str(self.n_waypoints-1)+'] init ' + str(self.initial_waypoint) + ';\n')
-        f.write('d:[0..'+str(self.n_door_states-1)+'] init ' + str(self.initial_door_state) + ';\n')
+        f.write('d:[0..'+str(self.n_unique_doors-1)+'] init ' + str(self.initial_door_state) + ';\n')
         f.write('t:[0..'+str(self.n_wait_states-1)+'] init ' + str(self.initial_wait_state) + ';\n \n')
         for i in range(0,self.n_waypoints):
-            for j in range(0,self.n_door_states):
+            for j in self.unique_door_ids:
                 for k in range(0 , self.n_wait_states):
                     for l in range(0 , self.n_new_actions):
                         current_trans_list = self.new_transitions[i][j][k][l]
@@ -80,17 +83,22 @@ class Mdp(object):
                 if self.waypoint_prop_map[j][i]:
                    prop_string=prop_string + 'w=' + str(j) + ' | '
             f.write(prop_string[:-3] + ';\n')
-        f.write('label "door_open" = d=2;\n')
-        f.write('label "door_closed" =d=1;\n')
-        f.write('label "door_unknown" =d=0;\n')
-        f.write('label "door_waited" = t=1;\n')
-        f.write('label "door_not_waited" =t=0;\n \n')
 
+        for i in range(self.n_doors):
+            f.write('label "door' + str(i) + '_waited" = t=1;\n')
+            f.write('label "door' + str(i) + '_not_waited" =t=0;\n \n')
+            for k in range(self.n_unique_doors):
+                if self.unique_doors[k][i] == 2:
+                    f.write('label "door' + str(i) + '_open" = d=2;\n')
+                if self.unique_doors[k][i] == 1:
+                    f.write('label "door' + str(i) + '_closed" =d=1;\n')
+                if self.unique_doors[k][i] == 0:
+                    f.write('label "door' + str(i) + '_unknown" =d=0;\n')
 
         f.write('rewards "time"\n')
 
         for i in range(0,self.n_waypoints):
-            for j in range(0,self.n_door_states):
+            for j in self.unique_door_ids:
                 for k in range(0 , self.n_wait_states):
                     for l in range(0 , self.n_new_actions):
                         if self.new_rewards[i][j][k][l] != 0:
@@ -130,7 +138,6 @@ class TopMapMdp(Mdp):
         self.initial_waypoint=0
         self.initial_door_state = 0
         self.initial_wait_state = 0
-
         self.top_nodes=self.read_top_map()
 
         self.normal_door_open_prob = 0.5
@@ -143,10 +150,9 @@ class TopMapMdp(Mdp):
         self.n_waypoint_props = self.n_waypoints
         self.waypoint_props = [None]*self.n_waypoint_props
         self.waypoint_prop_map=[[False]*self.n_waypoint_props for i in range(self.n_waypoints)]
+        self.generate_door_ids()
         for i in range(0,self.n_waypoint_props):
             self.waypoint_prop_map[i][i]=True
-
-
         i = 0
         self.n_waypoint_actions=0
         for entry in self.top_nodes:
@@ -180,8 +186,8 @@ class TopMapMdp(Mdp):
                     action_index=action_index+1
             state_index=state_index+1
 
-        self.new_transitions = [[[[False]*((action_index+1) + (5*doors)) for i in range(self.n_wait_states)] for j in range(self.n_door_states)] for k in range(self.n_waypoints)]
-        self.new_rewards = [[[[0]*((action_index+1) + (5*doors)) for i in range(self.n_wait_states)] for j in range(self.n_door_states)] for k in range(self.n_waypoints)]
+        self.new_transitions = [[[[False]*((action_index+1) + (5*doors)) for i in range(self.n_wait_states)] for j in range(self.n_unique_doors)] for k in range(self.n_waypoints)]
+        self.new_rewards = [[[[0]*((action_index+1) + (5*doors)) for i in range(self.n_wait_states)] for j in range(self.n_unique_doors)] for k in range(self.n_waypoints)]
         self.door_open_probs = [0]*doors
         self.door_wait_open_probs = [0]*doors
         self.door_names = [None]*doors
@@ -189,8 +195,14 @@ class TopMapMdp(Mdp):
         self.nearside_door_waypoint_names = [None]*doors
         self.n_doors = doors
         self.new_actions = []
+        doors_state = []
+        for i in range(self.n_doors):
+            doors_state.append(0)
+        initial_door_state = self.ternary_to_decimal(doors_state)
+        self.initial_door_state = initial_door_state
+        self.set_initial_door_state(self, initial_door_state)
         
-        self.policy = [[[None for i in range(self.n_wait_states)] for j in range(self.n_door_states)] for k in range(self.n_waypoints)]
+        self.policy = [[[None for i in range(self.n_wait_states)] for j in range(self.n_unique_doors)] for k in range(self.n_waypoints)]
 
         state_index=0
         action_index=0
@@ -209,23 +221,43 @@ class TopMapMdp(Mdp):
                     self.door_open_probs[door_id] = self.normal_door_open_prob
                     self.door_wait_open_probs[door_id] = self.normal_door_open_prob
                     self.new_actions.append('check_door' + str(door_id))
-                    self.new_transitions[state_index][0][0][len(self.new_actions)-1] = [[state_index,1,0,(1-self.door_open_probs[door_id])], [state_index,2,0, self.door_open_probs[door_id]]]
-                    self.new_rewards[state_index][0][0][len(self.new_actions)-1] = 1
+                    for k in range(self.n_unique_doors):
+                        if self.unique_doors[k][door_id] == 0:
+                            door_config = copy.copy(self.unique_doors[k])
+                            door_config[door_id] = 1
+                            door_closed_id = self.ternary_to_decimal(door_config)
+                            door_config[door_id] = 2
+                            door_open_id = self.ternary_to_decimal(door_config)
+                            self.new_transitions[state_index][self.unique_door_ids[k]][0][len(self.new_actions)-1] = [[state_index,door_closed_id,0,(1-self.door_open_probs[door_id])], [state_index,door_open_id,0, self.door_open_probs[door_id]]]
+                            self.new_rewards[state_index][self.unique_door_ids[k]][0][len(self.new_actions)-1] = 1
                     self.new_actions.append('wait_for_door' + str(door_id))
-                    self.new_transitions[state_index][1][0][len(self.new_actions)-1] = [[state_index,1,1,(1-self.door_wait_open_probs[door_id])],[state_index,2,1,self.door_wait_open_probs[door_id]]]
-                    self.new_rewards[state_index][1][0][len(self.new_actions)-1] = 1
+                    for k in range(self.n_unique_doors):
+                        if self.unique_doors[k][door_id] == 1:
+                            door_config = copy.copy(self.unique_doors[k])
+                            door_config[door_id] = 1
+                            door_closed_id = self.ternary_to_decimal(door_config)
+                            door_config[door_id] = 2
+                            door_open_id = self.ternary_to_decimal(door_config)
+                            self.new_transitions[state_index][self.unique_door_ids[k]][0][len(self.new_actions)-1] = [[state_index,door_closed_id,1,(1-self.door_wait_open_probs[door_id])],[state_index,door_open_id,1,self.door_wait_open_probs[door_id]]]
+                            self.new_rewards[state_index][self.unique_door_ids[k]][0][len(self.new_actions)-1] = 1
                     self.new_actions.append('set_door' + str(door_id) + '_open')
-                    self.new_transitions[state_index][2][1][len(self.new_actions)-1] = [[state_index,2,0,1]]
-                    self.new_rewards[state_index][2][1][len(self.new_actions)-1] = 120
+                    for k in range(self.n_unique_doors):
+                        if self.unique_doors[k][door_id] == 2:
+                            self.new_transitions[state_index][self.unique_door_ids[k]][1][len(self.new_actions)-1] = [[state_index,self.unique_door_ids[k],0,1]]
+                            self.new_rewards[state_index][self.unique_door_ids[k]][1][len(self.new_actions)-1] = 120
                     self.new_actions.append('takedoor_' + self.waypoint_names[state_index] + '_' + edge.node)
-                    #print 'takedoor_' + self.waypoint_names[state_index] + '_' + edge.node
-                    #print 'stored action: ' + self.new_actions[len(self.new_actions)-1]
-                    #print 'waypoint: ' + str(state_index)
-                    self.new_transitions[state_index][2][0][len(self.new_actions)-1] = [[target_index,0,0,1]]
-                    self.new_rewards[state_index][2][0][len(self.new_actions)-1] = 15
+                    for k in range(self.n_unique_doors):
+                        if self.unique_doors[k][door_id] == 2:
+                            door_config = copy.copy(self.unique_doors[k])
+                            door_config[door_id] = 0
+                            door_unknown_id = self.ternary_to_decimal(door_config)
+                            self.new_transitions[state_index][self.unique_door_ids[k]][0][len(self.new_actions)-1] = [[target_index,door_unknown_id,0,1]]
+                            self.new_rewards[state_index][self.unique_door_ids[k]][0][len(self.new_actions)-1] = 15
                     self.new_actions.append('set_door' + str(door_id) + '_closed')
-                    self.new_transitions[state_index][1][1][len(self.new_actions)-1] = [[state_index,1,0,1]]
-                    self.new_rewards[state_index][1][1][len(self.new_actions)-1] = 300
+                    for k in range(self.n_unique_doors):
+                        if self.unique_doors[k][door_id] == 1:
+                            self.new_transitions[state_index][self.unique_door_ids[k]][1][len(self.new_actions)-1] = [[state_index,self.unique_door_ids[k],0,1]]
+                            self.new_rewards[state_index][self.unique_door_ids[k]][1][len(self.new_actions)-1] = 300
                     self.door_names[door_id] = ('door' + str(door_id))
                     self.door_waypoints[door_id] = edge.node
                     self.nearside_door_waypoint_names[door_id] = self.waypoint_names[state_index]
@@ -239,8 +271,10 @@ class TopMapMdp(Mdp):
                     #print 'goto_'+self.waypoint_names[state_index] + '_' + edge.node
                     #print 'stored action: ' + self.new_actions[len(self.new_actions)-1]
                     #print 'waypoint: ' + str(state_index)
-                    self.new_transitions[state_index][0][0][len(self.new_actions)-1] = [[target_index, 0, 0, 1]]
-                    self.new_rewards[state_index][0][0][len(self.new_actions)-1] = 1
+                    for k in range(self.n_unique_doors):
+                        if self.unique_doors[k][door_id] == 0:
+                            self.new_transitions[state_index][self.unique_door_ids[k]][0][len(self.new_actions)-1] = [[target_index, self.unique_door_ids[k], 0, 1]]
+                            self.new_rewards[state_index][self.unique_door_ids[k]][0][len(self.new_actions)-1] = 1
                     self.waypoint_transitions[state_index][waypoint_action_index]= [[target_index,1]]
                     self.waypoint_rewards[state_index][waypoint_action_index]=1
                     waypoint_action_index += 1
@@ -250,6 +284,10 @@ class TopMapMdp(Mdp):
             state_index=state_index+1
 
         self.n_new_actions = len(self.new_actions)
+
+    def get_door_id_from_waypoint(self, waypoint_name):
+        door_id = self.nearside_door_waypoint_names.index(waypoint_name)
+        return door_id
 
     def generate_door_lists(self):
         n_doors = 4
@@ -267,14 +305,14 @@ class TopMapMdp(Mdp):
                     k += 1
             old_array = new_array
             k=0
-        return old_array
+        self.n_unique_doors = len(old_array)
+        self.unique_doors = old_array
 
     def generate_door_ids(self):
-        door_states = self.generate_door_lists()
-        door_ids = [0]*len(door_states)
-        for i in range(0, len(door_states)):
-            door_states[i] = self.ternary_to_decimal(door_states[i])
-        return door_states
+        door_ids = [0]*self.n_unique_doors
+        for i in range(self.n_unique_doors):
+            door_ids[i] = self.ternary_to_decimal(self.unique_doors[i])
+        self.unique_door_ids = door_ids
 
     def ternary_to_decimal(self, doors):
         n_doors = len(doors)
@@ -334,6 +372,7 @@ class TopMapMdp(Mdp):
                 current_action=current_action.split('_')
                 source_index=self.waypoint_names.index(current_action[1])
                 target_index=self.waypoint_names.index(current_action[2])
+                door_id = self.nearside_door_waypoint_names.index(current_action[1])
                 j=0
                 n_total_data=1
                 expected_time=0
@@ -351,29 +390,31 @@ class TopMapMdp(Mdp):
                         n_unprocessed_data=n_unprocessed_data-1
                     else:
                         j=j+1
-                if n_total_data==1:
-                    rospy.logwarn("No data for edge between waypoints " + current_action[1] + " and " + current_action[2] + ". Assuming it to be 20 seconds. Expected time between nodes will not be correct.")
-                    self.waypoint_rewards[source_index][action_index]=20
-                    self.new_rewards[source_index][0][0][new_action_index] = 20
-                else:
-                    self.waypoint_rewards[source_index][action_index]=expected_time/(total_outcomes_count-1)
-                    self.new_rewards[source_index][0][0][new_action_index]= expected_time/(total_outcomes_count-1)
-                    self.waypoint_transitions_transversal_count[source_index][action_index]=total_outcomes_count-1
-                    transition=None
-                    new_transition=None
-                    for j in range(0,self.n_waypoints):
-                        count=outcomes_count[j]
-                        if count > 0:
-                            probability=float(count)/float(total_outcomes_count)
-                            if transition is None:
-                                transition=[[j, probability]]
-                                new_transition = [[j,0,0,probability]]
+                for k in range(self.n_unique_doors):
+                        if self.unique_doors[k][door_id] == 0:
+                            if n_total_data==1:
+                                rospy.logwarn("No data for edge between waypoints " + current_action[1] + " and " + current_action[2] + ". Assuming it to be 20 seconds. Expected time between nodes will not be correct.")
+                                self.waypoint_rewards[source_index][action_index]=20
+                                self.new_rewards[source_index][self.unique_door_ids[k]][0][new_action_index] = 20
                             else:
-                                transition.append([j,probability])
-                                new_transition.append([j,0,0,probability])
-                    if transition is not None:
-                        self.waypoint_transitions[source_index][action_index]=transition
-                        self.new_transitions[source_index][0][0][new_action_index] = new_transition
+                                self.waypoint_rewards[source_index][action_index]=expected_time/(total_outcomes_count-1)
+                                self.new_rewards[source_index][self.unique_door_ids[k]][0][new_action_index]= expected_time/(total_outcomes_count-1)
+                                self.waypoint_transitions_transversal_count[source_index][action_index]=total_outcomes_count-1
+                                transition=None
+                                new_transition=None
+                                for j in range(0,self.n_waypoints):
+                                    count=outcomes_count[j]
+                                    if count > 0:
+                                        probability=float(count)/float(total_outcomes_count)
+                                        if transition is None:
+                                            transition=[[j, probability]]
+                                            new_transition = [[j,self.unique_door_ids[k],0,probability]]
+                                        else:
+                                            transition.append([j,probability])
+                                            new_transition.append([j,self.unique_door_ids[k],0,probability])
+                                if transition is not None:
+                                    self.waypoint_transitions[source_index][action_index]=transition
+                                    self.new_transitions[source_index][self.unique_door_ids[k]][0][new_action_index] = new_transition
             if 'takedoor' in current_action:
                 #print 'found door transition'
                 n_data = len(message_list)
@@ -383,6 +424,7 @@ class TopMapMdp(Mdp):
                 current_action=current_action.split('_')
                 source_index=self.waypoint_names.index(current_action[1])
                 target_index=self.waypoint_names.index(current_action[2])
+                door_id = self.nearside_door_waypoint_names.index(current_action[1])
                 j=0
                 n_total_data=1
                 expected_time=0
@@ -400,24 +442,29 @@ class TopMapMdp(Mdp):
                         n_unprocessed_data=n_unprocessed_data-1
                     else:
                         j=j+1
-                if n_total_data==1:
-                    rospy.logwarn("No data for edge between door waypoints " + current_action[1] + " and " + current_action[2] + ". Assuming it to be 20 seconds. Expected time between nodes will not be correct.")
-                    self.new_rewards[source_index][2][0][new_action_index] = 20
-                else:
-                    self.new_rewards[source_index][2][0][new_action_index]= expected_time/(total_outcomes_count-1)
-                    self.waypoint_transitions_transversal_count[source_index][action_index]=total_outcomes_count-1
-                    new_transition=None
-                    for j in range(0,self.n_waypoints):
-                        count=outcomes_count[j]
-                        if count > 0:
-                            probability=float(count)/float(total_outcomes_count)
-                            if new_transition is None:
-                                new_transition = [[j,0,0,probability]]
+                for k in range(self.n_unique_doors):
+                        if self.unique_doors[k][door_id] == 2:
+                            door_config = copy.copy(self.unique_doors[k])
+                            door_config[door_id] = 0
+                            door_unknown_id = self.ternary_to_decimal(door_config)
+                            if n_total_data==1:
+                                rospy.logwarn("No data for edge between door waypoints " + current_action[1] + " and " + current_action[2] + ". Assuming it to be 20 seconds. Expected time between nodes will not be correct.")
+                                self.new_rewards[source_index][self.unique_door_ids[k]][0][new_action_index] = 20
                             else:
-                                new_transition.append([j,0,0,probability])
-                    if new_transition is not None:
-                        self.waypoint_transitions[source_index][action_index]=transition
-                        self.new_transitions[source_index][0][0][new_action_index] = new_transition
+                                self.new_rewards[source_index][self.unique_door_ids[k]][0][new_action_index]= expected_time/(total_outcomes_count-1)
+                                self.waypoint_transitions_transversal_count[source_index][action_index]=total_outcomes_count-1
+                                new_transition=None
+                                for j in range(0,self.n_waypoints):
+                                    count=outcomes_count[j]
+                                    if count > 0:
+                                        probability=float(count)/float(total_outcomes_count)
+                                        if new_transition is None:
+                                            new_transition = [[j,door_unknown_id,0,probability]]
+                                        else:
+                                            new_transition.append([j,door_unknown_id,0,probability])
+                                if new_transition is not None:
+                                    self.waypoint_transitions[source_index][action_index]=transition
+                                    self.new_transitions[source_index][self.unique_door_ids[k]][0][new_action_index] = new_transition
             if 'check' in current_action:
                 #print 'found a door check'
                 n_data = len(check_list)
@@ -428,6 +475,7 @@ class TopMapMdp(Mdp):
                 door_index = self.door_names.index(door_name)
                 door_waypoint = self.nearside_door_waypoint_names[door_index]
                 waypoint_id = self.waypoint_names.index(door_waypoint)
+                door_id = self.nearside_door_waypoint_names.index(current_action[1])
                 j=0
                 total_data_count = 1
                 successes = 0
@@ -445,19 +493,28 @@ class TopMapMdp(Mdp):
                         n_unprocessed_data = n_unprocessed_data - 1
                     else:
                         j = j + 1
-                new_transition = None
-                if total_data_count > 0 and successes > 0:
-                    success_probability = float(successes)/float(total_data_count)
-                    fail_probability = 1-success_probability
-                    new_transition = [[waypoint_id, 2, 0, success_probability]]
-                    new_transition.append([waypoint_id, 1, 0, fail_probability])
-                    self.new_transitions[waypoint_id, 0, 0, new_action_index] = new_transition
-                else:
-                    #in the case that there is no data or no success, assume a 50:50 chance
-                    #print 'adding new door check'
-                    new_transition = [[waypoint_id, 2, 0, 0.5]]
-                    new_transition.append([waypoint_id, 1, 0, 0.5])
-                    self.new_transitions[waypoint_id][0][0][new_action_index] = new_transition
+                for k in range(self.n_unique_doors):
+                        if self.unique_doors[k][door_id] == 0:
+                            door_config = copy.copy(self.unique_doors[k])
+                            door_config[door_id] = 0
+                            door_unknown_id = self.ternary_to_decimal(door_config)
+                            door_config[door_id] = 1
+                            door_closed_id = self.ternary_to_decimal(door_config)
+                            door_config[door_id] = 2
+                            door_open_id = self.ternary_to_decimal(door_config)
+                            new_transition = None
+                            if total_data_count > 0 and successes > 0:
+                                success_probability = float(successes)/float(total_data_count)
+                                fail_probability = 1-success_probability
+                                new_transition = [[waypoint_id, door_open_id, 0, success_probability]]
+                                new_transition.append([waypoint_id, door_closed_id, 0, fail_probability])
+                                self.new_transitions[waypoint_id, door_unknown_id, 0, new_action_index] = new_transition
+                            else:
+                                #in the case that there is no data or no success, assume a 50:50 chance
+                                #print 'adding new door check'
+                                new_transition = [[waypoint_id, door_open_id, 0, 0.5]]
+                                new_transition.append([waypoint_id, door_closed_id, 0, 0.5])
+                                self.new_transitions[waypoint_id][door_unknown_id][0][new_action_index] = new_transition
             if 'wait' in current_action:
                 print 'found a door wait'
                 n_data = len(wait_list)
@@ -470,6 +527,7 @@ class TopMapMdp(Mdp):
                 waypoint_id = self.waypoint_names.index(door_waypoint)
                 reset_action_fail = self.new_actions.index('set_' + door_name + '_closed')
                 reset_action_success = self.new_actions.index('set_' + door_name + '_open')
+                door_id = self.nearside_door_waypoint_names.index(current_action[1])
                 j=0
                 total_data_count = 0
                 successes = 0
@@ -496,26 +554,35 @@ class TopMapMdp(Mdp):
                         n_unprocessed_data = n_unprocessed_data - 1
                     else:
                         j = j + 1
-                new_transition = None
-                if total_data_count > 0 and successes > 0:
-                    success_probability = float(successes)/float(total_data_count)
-                    fail_probability = 1-success_probability
-                    new_transition = [[waypoint_id, 2, 1, success_probability]]
-                    new_transition.append([waypoint_id, 1, 1, fail_probability])
-                    self.new_transitions[waypoint_id][1][0][new_action_index] = new_transition
-                    self.new_rewards[waypoint_id][2][1][reset_action_success]= total_success_time/successes
-                    if failures > 0:
-                        self.new_rewards[waypoint_id][1][1][reset_action_fail]= total_failure_time/failures
-                    else:
-                        self.new_rewards[waypoint_id][1][1][reset_action_fail]= 300
-                else:
-                    #in the case that there is no data or no success, assume a 50:50 chance
-                    print 'adding new door wait'
-                    new_transition = [[waypoint_id, 2, 1, 0.5]]
-                    new_transition.append([waypoint_id, 1, 1, 0.5])
-                    self.new_transitions[waypoint_id][1][0][new_action_index] = new_transition
-                    self.new_rewards[waypoint_id][2][1][reset_action_success]= 120
-                    self.new_rewards[waypoint_id][1][1][reset_action_fail]= 300
+                for k in range(self.n_unique_doors):
+                        if self.unique_doors[k][door_id] == 0:
+                            door_config = copy.copy(self.unique_doors[k])
+                            door_config[door_id] = 0
+                            door_unknown_id = self.ternary_to_decimal(door_config)
+                            door_config[door_id] = 1
+                            door_closed_id = self.ternary_to_decimal(door_config)
+                            door_config[door_id] = 2
+                            door_open_id = self.ternary_to_decimal(door_config)
+                            new_transition = None
+                            if total_data_count > 0 and successes > 0:
+                                success_probability = float(successes)/float(total_data_count)
+                                fail_probability = 1-success_probability
+                                new_transition = [[waypoint_id, door_open_id, 1, success_probability]]
+                                new_transition.append([waypoint_id, door_closed_id, 1, fail_probability])
+                                self.new_transitions[waypoint_id][door_closed_id][0][new_action_index] = new_transition
+                                self.new_rewards[waypoint_id][door_open_id][1][reset_action_success]= total_success_time/successes
+                                if failures > 0:
+                                    self.new_rewards[waypoint_id][door_closed_id][1][reset_action_fail]= total_failure_time/failures
+                                else:
+                                    self.new_rewards[waypoint_id][door_closed_id][1][reset_action_fail]= 300
+                            else:
+                                #in the case that there is no data or no success, assume a 50:50 chance
+                                print 'adding new door wait'
+                                new_transition = [[waypoint_id, door_open_id, 1, 0.5]]
+                                new_transition.append([waypoint_id, door_closed_id, 1, 0.5])
+                                self.new_transitions[waypoint_id][door_closed_id][0][new_action_index] = new_transition
+                                self.new_rewards[waypoint_id][door_open_id][1][reset_action_success]= 120
+                                self.new_rewards[waypoint_id][door_closed_id][1][reset_action_fail]= 300
 
 
         if total_doors_open > 0:
@@ -525,6 +592,11 @@ class TopMapMdp(Mdp):
         index=self.waypoint_names.index(state_name)
         self.set_initial_state(index)
         self.set_initial_waypoint(index)
+        doors_state = []
+        for i in range(self.n_doors):
+            doors_state.append(0)
+        initial_door_state = self.ternary_to_decimal(doors_state)
+        self.set_initial_door_state(initial_door_state)
         
     def set_reachability_policy(self, policy_file, product_sta):
             #    self.policy = [[[[None] for i in range(self.n_wait_states)] for j in range(self.n_door_states)] for k in range(self.n_waypoints)]
@@ -571,7 +643,11 @@ class TopMapMdp(Mdp):
     def get_door_closed_probability(self, waypoint_name, new_action):
         waypoint_id = self.waypoint_names.index(waypoint_name)
         new_action_index = self.new_actions.index(new_action)
-        transitions = self.new_transitions[waypoint_id][1][0][new_action_index]
+        door_id = self.nearside_door_waypoint_names.index(waypoint_name)
+        for k in range(self.n_unique_doors):
+            if self.unique_doors[k][door_id] == 1:
+                new_k = copy.copy(k)
+        transitions = self.new_transitions[waypoint_id][self.unique_door_ids[new_k]][0][new_action_index]
         for trans in transitions:
             if (trans[1] == 1):
                 prob = trans[3]
@@ -581,21 +657,31 @@ class TopMapMdp(Mdp):
         state_index = self.waypoint_names.index(waypoint_name)
         door_id = self.nearside_door_waypoint_names.index(waypoint_name)
         action_id = self.new_actions.index('check_door' + str(door_id))
-        self.new_transitions[state_index][0][0][len(self.new_actions)-1] = False
-        self.new_rewards[state_index][0][0][len(self.new_actions)-1] = 0
+        for k in range(self.n_unique_doors):
+            if self.unique_doors[k][door_id] == 0:
+                self.new_transitions[state_index][self.unique_door_ids[k]][0][len(self.new_actions)-1] = False
+                self.new_rewards[state_index][self.unique_door_ids[k]][0][len(self.new_actions)-1] = 0
         action_id = self.new_actions.index('wait_for_door' + str(door_id))
-        self.new_transitions[state_index][1][0][len(self.new_actions)-1] = False
-        self.new_rewards[state_index][1][0][len(self.new_actions)-1] = 0
+        for k in range(self.n_unique_doors):
+            if self.unique_doors[k][door_id] == 1:
+                self.new_transitions[state_index][self.unique_door_ids[k]][0][len(self.new_actions)-1] = False
+                self.new_rewards[state_index][self.unique_door_ids[k]][0][len(self.new_actions)-1] = 0
         action_id = self.new_actions.index('set_door' + str(door_id) + '_open')
-        self.new_transitions[state_index][2][1][len(self.new_actions)-1] = False
-        self.new_rewards[state_index][2][1][len(self.new_actions)-1] = 0
+        for k in range(self.n_unique_doors):
+            if self.unique_doors[k][door_id] == 2:
+                self.new_transitions[state_index][self.unique_door_ids[k]][1][len(self.new_actions)-1] = False
+                self.new_rewards[state_index][self.unique_door_ids[k]][1][len(self.new_actions)-1] = 0
         takedoor_action = (i for i in self.new_actions if i.startswith('takedoor_' + self.waypoint_names[state_index]))
         action_id = self.new_actions.index(takedoor_action)
-        self.new_transitions[state_index][2][0][len(self.new_actions)-1] = False
-        self.new_rewards[state_index][2][0][len(self.new_actions)-1] = 0
+        for k in range(self.n_unique_doors):
+            if self.unique_doors[k][door_id] == 2:
+                self.new_transitions[state_index][self.unique_door_ids[k]][0][len(self.new_actions)-1] = False
+                self.new_rewards[state_index][self.unique_door_ids[k]][0][len(self.new_actions)-1] = 0
         action_id = self.new_actions.index('set_door' + str(door_id) + '_closed')
-        self.new_transitions[state_index][1][1][len(self.new_actions)-1] = False
-        self.new_rewards[state_index][1][1][len(self.new_actions)-1] = 0
+        for k in range(self.n_unique_doors):
+            if self.unique_doors[k][door_id] == 1:
+                self.new_transitions[state_index][self.unique_door_ids[k]][1][len(self.new_actions)-1] = False
+                self.new_rewards[state_index][self.unique_door_ids[k]][1][len(self.new_actions)-1] = 0
 
 class ProductMdp(Mdp):
 

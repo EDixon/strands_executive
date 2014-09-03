@@ -282,21 +282,21 @@ class MdpPlanner(object):
                 door_status = self.door_check_action_client.get_result()
                 if door_status.is_open == True:
                     print 'door is open'
-                    door_state = 2
+                    current_door_state = 2
                 else:
                     print 'door is closed'
-                    door_state = 1
-                if door_state == 2:
+                    current_door_state = 1
+                if current_door_state == 2:
                     print 'going through door'
                     top_nav_goal = GotoNodeGoal()
                     top_nav_goal.target = split_action[2]
                     self.top_nav_action_client.send_goal(top_nav_goal)
                     self.top_nav_action_client.wait_for_result()
                     current_waypoint = self.current_node
-                    door_state = 0
-                elif door_state == 1:
+                    current_door_state = 0
+                elif current_door_state == 1:
                     attempts = 0
-                    while door_state == 1:
+                    while current_door_state == 1:
                         attempts += 1
                         print 'waiting for door'
                         door_wait_goal = DoorWaitGoal()
@@ -309,7 +309,7 @@ class MdpPlanner(object):
                         door_status = self.door_wait_action_client.get_result()
                         if door_status.is_open == True:
                             print 'door is open'
-                            door_state = 2
+                            current_door_state = 2
                             print 'going through door'
                             top_nav_goal=GotoNodeGoal()
                             top_nav_goal.target=split_action[2]
@@ -326,8 +326,8 @@ class MdpPlanner(object):
                             self.policy_handler.top_map_mdp.waypoint_transitions_transversal_count[current_waypoint][current_min_index]+=1
                         else:
                             print 'door is closed'
-                            door_state = 1
-                    door_state = 0
+                            current_door_state = 1
+                    current_door_state = 0
                         # if attempts >= 5:
                         #     door_state = 0
                         #     attempts = 0
