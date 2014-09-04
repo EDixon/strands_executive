@@ -5,9 +5,10 @@ import sys
 import rospy
 import math
 
-from ros_datacentre.message_store import MessageStoreProxy
+from mongodb_store.message_store import MessageStoreProxy
 from strands_navigation_msgs.msg import TopologicalNode
-from strands_navigation_msgs.msg import NavStatistics, DoorWaitStats, DoorCheckStats
+from strands_navigation_msgs.msg import NavStatistics
+from scitos_apps_msgs.msg import DoorWaitStat, DoorCheckStat
 from strands_navigation_msgs.msg import NavRoute
 from geometry_msgs.msg import Pose
 
@@ -278,8 +279,8 @@ class TopMapMdp(Mdp):
         query_meta["pointset"] = self.top_map
         #print self.top_map
         message_list = msg_store.query(NavStatistics._type, {}, query_meta)
-        wait_list = msg_store.query(DoorWaitStats._type, {}, query_meta)
-        check_list = msg_store.query(DoorCheckStats._type, {}, query_meta)
+        wait_list = msg_store.query(DoorWaitStat._type, {}, query_meta)
+        check_list = msg_store.query(DoorCheckStat._type, {}, query_meta)
         n_data=len(message_list)
         n_unprocessed_data=n_data
         total_door_checks = 0

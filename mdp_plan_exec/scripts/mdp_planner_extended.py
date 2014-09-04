@@ -333,15 +333,17 @@ class MdpPlanner(object):
                                 self.learn_travel_times_action.set_aborted()
                                 return
                             self.policy_handler.top_map_mdp.waypoint_transitions_transversal_count[current_waypoint][current_min_index]+=1
+                            door_state = 0
+                            doors_state[door_id] = 0
                         else:
                             print 'door is closed'
                             doors_state[door_id] = 1
                             door_state = 1
-                    door_state = 0
-                    doors_state[door_id] = 0
-                        # if attempts >= 5:
-                        #     door_state = 0
-                        #     attempts = 0
+                            if attempts > 5:
+                                break
+
+
+
         self.exp_times_handler.update_current_top_mdp("all_day")
         timer.shutdown()
 

@@ -23,7 +23,7 @@ from actionlib_msgs.msg import GoalStatus
 
 from strands_navigation_msgs.msg import NavStatistics, MonitoredNavigationAction, MonitoredNavigationActionResult
 
-from ros_datacentre.message_store import MessageStoreProxy
+from mongodb_store.message_store import MessageStoreProxy
 from scitos_apps_msgs.msg import DoorCheckAction, DoorWaitGoal, DoorCheckGoal, DoorWaitAction
 from geometry_msgs.msg import PoseWithCovarianceStamped, Pose, Twist
 from robblog.msg import RobblogEntry
