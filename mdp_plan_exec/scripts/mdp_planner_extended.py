@@ -8,7 +8,7 @@ import math
 
 #from mdp_plan_exec.prism_client import PrismClient
 #from mdp_plan_exec.mdp import TopMapMdp, ProductMdp
-from mdp_plan_exec.mdp import ProductMdp
+from mdp_plan_exec.mdp_extended import ProductMdp
 from mdp_plan_exec.prism_mdp_manager import PrismMdpManager
 
 from strands_executive_msgs.srv import AddMdpModel, GetExpectedTravelTime, UpdateNavStatistics, AddDeleteSpecialWaypoint, AddDeleteSpecialWaypointRequest
@@ -381,7 +381,7 @@ class MdpPlanner(object):
             return
 
         feedback=ExecutePolicyFeedback()
-        feedback.expected_time=float(self.policy_handler.prism_client.get_policy(goal.time_of_day,specification))
+        feedback.expected_time=float(self.policy_handler.prism_client.get_policy(goal.time_of_day, specification))
         self.mdp_navigation_action.publish_feedback(feedback)
         if feedback.expected_time==float("inf"):
             rospy.logerr("The goal is unattainable with the current forbidden nodes. Aborting...")
@@ -405,7 +405,6 @@ class MdpPlanner(object):
         total_waits = 0
         while current_waypoint != goal.target_id and self.executing_policy and not rospy.is_shutdown():
             doors_state_id = self.policy_handler.top_map_mdp.ternary_to_decimal(doors_state)
-            door_id = self.policy_handler.top_map_mdp.get_door_id_from_waypoint(current_waypoint)
             waypoint_id = self.policy_handler.top_map_mdp.get_waypoint_from_name(current_waypoint)
             new_action = self.get_next_action(waypoint_id, doors_state_id, wait_state)
             print ' '
@@ -418,10 +417,10 @@ class MdpPlanner(object):
                 self.top_nav_action_client.send_goal(top_nav_goal)
                 self.top_nav_action_client.wait_for_result()
                 current_waypoint = self.current_node
-                doors_state[door_id] = 0
                 door_state = 0
                 wait_state = 0
             elif new_action[0] == 'checking':
+                door_id = self.policy_handler.top_map_mdp.get_door_id_from_waypoint(current_waypoint)
                 print 'Checking if door is open'
                 door_check_goal = DoorCheckGoal()
                 door_goal = new_action[2]
@@ -440,6 +439,7 @@ class MdpPlanner(object):
                     door_state = 1
                     wait_state = 0
             elif new_action[0] == 'waiting':
+                door_id = self.policy_handler.top_map_mdp.get_door_id_from_waypoint(current_waypoint)
                 print 'waiting for door'
                 door_wait_goal = DoorWaitGoal()
                 #print dir(door_wait_goal)
@@ -474,6 +474,7 @@ class MdpPlanner(object):
                             self.mdp_navigation_action.set_aborted()
                             return
             elif new_action[0] == 'setting':
+                door_id = self.policy_handler.top_map_mdp.get_door_id_from_waypoint(current_waypoint)
                 if new_action[2] == 'open':
                     print 'door set to open'
                     doors_state[door_id] = 2
@@ -491,7 +492,6 @@ class MdpPlanner(object):
                 self.executing_policy=False
                 return
 
-            print 'Navigation outcome: ' + self.nav_action_outcome
             if self.nav_action_outcome=='fatal' or self.nav_action_outcome=='failed':
                 n_successive_fails=n_successive_fails+1
             else:

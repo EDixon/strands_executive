@@ -6,7 +6,7 @@ import rospkg
 
 import actionlib
 
-from mdp_plan_exec.mdp import TopMapMdp, ProductMdp
+from mdp_plan_exec.mdp_extended import TopMapMdp, ProductMdp
 from mdp_plan_exec.prism_mdp_manager import PrismMdpManager
 
 from strands_executive_msgs.msg import ExecutePolicyAction, ExecutePolicyGoal

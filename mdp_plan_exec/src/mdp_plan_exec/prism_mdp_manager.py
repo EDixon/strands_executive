@@ -5,7 +5,7 @@ import sys
 import rospy
 
 
-from  mdp import TopMapMdp, ProductMdp
+from mdp_extended import TopMapMdp, ProductMdp
 from prism_client import PrismClient
 
 class PrismMdpManager(object):
