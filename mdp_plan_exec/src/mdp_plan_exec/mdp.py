@@ -447,10 +447,10 @@ class TopMapMdp(Mdp):
                         total_data_count += 1
                         if entry[0].opened == True:
                             #print 'success found'
-                            total_success_time=total_success_time+(float(entry[0].end_wait_time)-float(entry[0].start_wait_time))
+                            total_success_time=total_success_time+(float(entry[0].wait_time.secs))
                             successes += 1
                         elif entry[0].opened == False:
-                            total_failure_time=total_failure_time+(float(entry[0].end_wait_time)-float(entry[0].start_wait_time))
+                            total_failure_time=total_failure_time+(float(entry[0].wait_time.secs))
                             failures += 1
                         del wait_list[j]
                         n_unprocessed_data = n_unprocessed_data - 1

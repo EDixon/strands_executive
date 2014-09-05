@@ -315,7 +315,7 @@ class MdpPlanner(object):
                         self.door_wait_action_client.send_goal(door_wait_goal)
                         self.door_wait_action_client.wait_for_result()
                         door_status = self.door_wait_action_client.get_result()
-                        if door_status.is_open == True:
+                        if door_status.opened == True:
                             print 'door is open'
                             doors_state[door_id] = 2
                             door_state = 2
@@ -410,6 +410,7 @@ class MdpPlanner(object):
             print ' '
             print 'current state: ' + str(self.policy_handler.top_map_mdp.get_waypoint_from_name(current_waypoint)) + ' ' + str(doors_state_id) + ' ' + str(wait_state)
             print 'New action: ' + new_action[0] + '_' + new_action[1] + '_' + new_action[2]
+            print 'Current door state: ' + str(doors_state)
             if new_action[0] == 'goto':
                 print 'Moving to new location'
                 top_nav_goal = GotoNodeGoal()
@@ -418,6 +419,17 @@ class MdpPlanner(object):
                 self.top_nav_action_client.wait_for_result()
                 current_waypoint = self.current_node
                 door_state = 0
+                wait_state = 0
+            elif new_action[0] == 'takedoor':
+                print 'Moving through door'
+                door_id = self.policy_handler.top_map_mdp.get_door_id_from_waypoint(current_waypoint)
+                top_nav_goal = GotoNodeGoal()
+                top_nav_goal.target = new_action[2]
+                self.top_nav_action_client.send_goal(top_nav_goal)
+                self.top_nav_action_client.wait_for_result()
+                current_waypoint = self.current_node
+                door_state = 0
+                doors_state[door_id] = 0
                 wait_state = 0
             elif new_action[0] == 'checking':
                 door_id = self.policy_handler.top_map_mdp.get_door_id_from_waypoint(current_waypoint)
@@ -449,7 +461,7 @@ class MdpPlanner(object):
                 self.door_wait_action_client.send_goal(door_wait_goal)
                 self.door_wait_action_client.wait_for_result()
                 door_status = self.door_wait_action_client.get_result()
-                if door_status.is_open == True:
+                if door_status.opened == True:
                     print 'door is open'
                     doors_state[door_id] = 2
                     door_state = 2
@@ -514,10 +526,14 @@ class MdpPlanner(object):
         action_type = 'none'
         initial_waypoint = 'none'
         final_waypoint = 'none'
-        if split_action[0] == 'goto' or split_action[0] == 'takedoor':
+        if split_action[0] == 'goto':
             initial_waypoint = split_action[1]
             final_waypoint = split_action[2]
             action_type = 'goto'
+        elif split_action[0] == 'takedoor':
+            initial_waypoint = split_action[1]
+            final_waypoint = split_action[2]
+            action_type = 'takedoor'
         elif split_action[0] == 'wait':
             action_type = 'waiting'
             final_waypoint = self.policy_handler.top_map_mdp.get_door_waypoint_from_door_name(split_action[2])

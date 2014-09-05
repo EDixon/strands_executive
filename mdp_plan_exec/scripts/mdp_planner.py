@@ -307,7 +307,7 @@ class MdpPlanner(object):
                         self.door_wait_action_client.send_goal(door_wait_goal)
                         self.door_wait_action_client.wait_for_result()
                         door_status = self.door_wait_action_client.get_result()
-                        if door_status.is_open == True:
+                        if door_status.opened == True:
                             print 'door is open'
                             current_door_state = 2
                             print 'going through door'
@@ -401,6 +401,15 @@ class MdpPlanner(object):
                 current_waypoint = self.current_node
                 door_state = 0
                 wait_state = 0
+            elif new_action[0] == 'takedoor':
+                print 'Moving to new location'
+                top_nav_goal = GotoNodeGoal()
+                top_nav_goal.target = new_action[2]
+                self.top_nav_action_client.send_goal(top_nav_goal)
+                self.top_nav_action_client.wait_for_result()
+                current_waypoint = self.current_node
+                door_state = 0
+                wait_state = 0
             elif new_action[0] == 'checking':
                 print 'Checking if door is open'
                 door_check_goal = DoorCheckGoal()
@@ -427,7 +436,7 @@ class MdpPlanner(object):
                 self.door_wait_action_client.send_goal(door_wait_goal)
                 self.door_wait_action_client.wait_for_result()
                 door_status = self.door_wait_action_client.get_result()
-                if door_status.is_open == True:
+                if door_status.opened == True:
                     print 'door is open'
                     door_state = 2
                     wait_state = 1
@@ -465,7 +474,6 @@ class MdpPlanner(object):
                 self.executing_policy=False
                 return
 
-            print 'Navigation outcome: ' + self.nav_action_outcome
             if self.nav_action_outcome=='fatal' or self.nav_action_outcome=='failed':
                 n_successive_fails=n_successive_fails+1
             else:
@@ -489,10 +497,14 @@ class MdpPlanner(object):
         action_type = 'none'
         initial_waypoint = 'none'
         final_waypoint = 'none'
-        if split_action[0] == 'goto' or split_action[0] == 'takedoor':
+        if split_action[0] == 'goto':
             initial_waypoint = split_action[1]
             final_waypoint = split_action[2]
             action_type = 'goto'
+        elif split_action[0] == 'takedoor':
+            initial_waypoint = split_action[1]
+            final_waypoint = split_action[2]
+            action_type = 'takedoor'
         elif split_action[0] == 'wait':
             action_type = 'waiting'
             final_waypoint = self.policy_handler.top_map_mdp.get_door_waypoint_from_door_name(split_action[2])

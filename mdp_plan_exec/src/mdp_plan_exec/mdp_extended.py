@@ -209,7 +209,7 @@ class TopMapMdp(Mdp):
         for entry in self.top_nodes:
             self.waypoint_props[i]=entry[0].name
             self.waypoint_names[i]=entry[0].name
-            print 'Waypoint ' + str(i) + '=' + entry[0].name
+            #print 'Waypoint ' + str(i) + '=' + entry[0].name
             self.n_waypoint_actions=self.n_waypoint_actions+len(entry[0].edges)
             i=i+1
 
@@ -323,7 +323,7 @@ class TopMapMdp(Mdp):
                     #print 'goto_'+self.waypoint_names[state_index] + '_' + edge.node
                     #print 'stored action: ' + self.new_actions[len(self.new_actions)-1]
                     #print 'waypoint: ' + str(state_index)
-                    print 'waypoint id: ' + str(state_index) + ' Waypoint name: ' + self.waypoint_names[state_index]
+                    #print 'waypoint id: ' + str(state_index) + ' Waypoint name: ' + self.waypoint_names[state_index]
                     for k in range(self.n_unique_doors):
                         self.new_transitions[state_index][self.unique_door_ids[k]][0][len(self.new_actions)-1] = [[target_index, self.unique_door_ids[k], 0, 1]]
                         self.new_rewards[state_index][self.unique_door_ids[k]][0][len(self.new_actions)-1] = 1
@@ -507,13 +507,16 @@ class TopMapMdp(Mdp):
                                 self.new_rewards[source_index][self.unique_door_ids[k]][0][new_action_index]= expected_time/(total_outcomes_count-1)
                                 self.waypoint_transitions_transversal_count[source_index][action_index]=total_outcomes_count-1
                                 new_transition=None
+                                transition=None
                                 for j in range(0,self.n_waypoints):
                                     count=outcomes_count[j]
                                     if count > 0:
                                         probability=float(count)/float(total_outcomes_count)
                                         if new_transition is None:
+                                            transition=[[j, probability]]
                                             new_transition = [[j,door_unknown_id,0,probability]]
                                         else:
+                                            transition.append([j,probability])
                                             new_transition.append([j,door_unknown_id,0,probability])
                                 if new_transition is not None:
                                     self.waypoint_transitions[source_index][action_index]=transition
@@ -561,7 +564,7 @@ class TopMapMdp(Mdp):
                                 fail_probability = 1-success_probability
                                 new_transition = [[waypoint_id, door_open_id, 0, success_probability]]
                                 new_transition.append([waypoint_id, door_closed_id, 0, fail_probability])
-                                self.new_transitions[waypoint_id, door_unknown_id, 0, new_action_index] = new_transition
+                                self.new_transitions[waypoint_id][door_unknown_id][0][new_action_index] = new_transition
                             else:
                                 #in the case that there is no data or no success, assume a 50:50 chance
                                 #print 'adding new door check'
@@ -598,10 +601,10 @@ class TopMapMdp(Mdp):
                         total_data_count += 1
                         if entry[0].opened == True:
                             #print 'success found'
-                            total_success_time=total_success_time+(float(entry[0].duration))
+                            total_success_time=total_success_time+(float(entry[0].wait_time.secs))
                             successes += 1
                         elif entry[0].opened == False:
-                            total_failure_time=total_failure_time+(float(entry[0].duration))
+                            total_failure_time=total_failure_time+(float(entry[0].wait_time.secs))
                             failures += 1
                         del wait_list[j]
                         n_unprocessed_data = n_unprocessed_data - 1
