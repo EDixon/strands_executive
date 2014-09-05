@@ -474,6 +474,7 @@ class MdpPlanner(object):
             if n_successive_fails>4:
                 rospy.logerr("Five successive fails in topological navigation. Aborting...")
                 self.executing_policy=False
+                self.mon_nav_action_client.cancel_all_goals()
                 self.top_nav_action_client.cancel_all_goals()
                 self.mdp_navigation_action.set_aborted()
                 return
@@ -506,10 +507,70 @@ class MdpPlanner(object):
             final_waypoint = split_action[2]
         return [action_type, initial_waypoint, final_waypoint]
                 
+        
+        self.exp_times_handler.update_current_top_mdp(goal.time_of_day)
+        
+        self.monitored_nav_result=None
+        timeout_counter=0
+        while self.monitored_nav_result is None and self.executing_policy and timeout_counter < self.get_to_exact_pose_timeout:     
+            rospy.sleep(0.5)
+            timeout_counter=timeout_counter+1
+        
+        
+        if self.executing_policy:
+            self.executing_policy=False
+            if self.monitored_nav_result==GoalStatus.PREEMPTED:
+                self.mdp_navigation_action.set_preempted()
+                return
+            if self.monitored_nav_result==GoalStatus.SUCCEEDED and self.current_node == goal.target_id:
+                self.mdp_navigation_action.set_succeeded()
+                return
+            if self.monitored_nav_result==GoalStatus.ABORTED or self.monitored_nav_result is None or not self.current_node == goal.target_id:
+                rospy.logerr("Failure in getting to exact pose in goal waypoint")
+                self.mdp_navigation_action.set_aborted()
+                return
+            
+
+ 
+    def get_monitored_nav_status_cb(self,msg):
+        self.monitored_nav_result=msg.status.status
+        
+ 
+ 
+            
     def preempt_policy_execution_cb(self):
         self.executing_policy=False
+        self.mon_nav_action_client.cancel_all_goals()
         self.top_nav_action_client.cancel_all_goals()
         self.mdp_navigation_action.set_preempted()
+        
+        
+    def unexpected_trans_time_cb(self,event):
+        last_stuck_image = None
+        image_topic =  '/head_xtion/rgb/image_color'
+        #image_topic =  '/head_xtion/rgb/image_mono'  #simulation topic
+        
+        #count = 0
+        #while self.last_stuck_image == None and  not rospy.is_shutdown() and count < 10:
+            #rospy.loginfo('waiting for image of possible blocked path %s' % count)
+            #count += 1
+            #rospy.sleep(1)
+            
+        last_stuck_image=rospy.wait_for_message(image_topic, Image , timeout=10.0)
+            
+        e = RobblogEntry(title=datetime.datetime.now().strftime("%H:%M:%S") + ' - Possible Blocked Path')
+        e.body = 'It took me a lot more time to go between ' + self.origin_waypoint + ' and ' + self.target_waypoint + ' than I was expecting. Something might be blocking the way.'
+            
+        if last_stuck_image != None:
+            img_id = self.msg_store_blog.insert(last_stuck_image)
+            rospy.loginfo('adding possible blockage image to blog post')
+            e.body += ' Here is what I saw: \n\n![Image of the door](ObjectID(%s))' % img_id
+        self.msg_store_blog.insert(e)
+        
+        
+    #def img_callback(self, img):
+        #self.last_stuck_image = img
+    
         
     
     def closest_node_cb(self,msg):
