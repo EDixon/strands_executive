@@ -223,8 +223,8 @@ class MdpPlanner(object):
 
 
 #-------------------------policy generation/execution
-    def execute_learn_travel_times_cb(self,goal):
-
+    def execute_learn_travel_times_cb(self, goal):
+        print 'started navigation'
         if self.executing_policy:
             self.preempt_policy_execution_cb()
 
@@ -245,9 +245,13 @@ class MdpPlanner(object):
                 self.policy_handler.top_map_mdp.set_initial_state_from_name(self.current_node)
             current_doors_state_id = self.policy_handler.top_map_mdp.ternary_to_decimal(doors_state)
             current_waypoint=self.policy_handler.top_map_mdp.initial_waypoint
+            current_waypoint_name = self.policy_handler.top_map_mdp.waypoint_names[current_waypoint]
+            print 'Currently at: ' + current_waypoint_name
             current_waypoint_trans=self.policy_handler.top_map_mdp.waypoint_transitions[current_waypoint]
+            print 'Current possible transitions'
+            print current_waypoint_trans
             current_trans_count=self.policy_handler.top_map_mdp.waypoint_transitions_transversal_count[current_waypoint]
-            door_id = self.policy_handler.top_map_mdp.get_door_id_from_waypoint(current_waypoint)
+            print 'Transition counts: ' + str(current_trans_count)
             #new transitions has action index of all actions
             #waypoint_transitions_transversal_count has action index of waypoint actions only
             current_min=-1
@@ -260,7 +264,8 @@ class MdpPlanner(object):
                     elif current_trans_count[i]<current_min:
                         current_min=current_trans_count[i]
                         current_min_index=i
-            current_action=self.policy_handler.top_map_mdp.actions[current_min_index][current_doors_state_id][current_wait_state]
+            current_action=self.policy_handler.top_map_mdp.waypoint_actions[current_min_index]
+            print 'The next action to take is: ' + current_action
             split_action = current_action.split('_')
             if split_action[0] == 'goto':
                 print 'going somewhere'
@@ -278,10 +283,12 @@ class MdpPlanner(object):
                     return
                 self.policy_handler.top_map_mdp.waypoint_transitions_transversal_count[current_waypoint][current_min_index]+=1
             elif split_action[0] == 'takedoor':
+                door_state = 0
                 print 'Checking if door is open'
                 door_check_goal = DoorCheckGoal()
                 door_goal = split_action[2]
                 door_check_goal.target_pose.pose = self.policy_handler.top_map_mdp.get_waypoint_pose(door_goal)
+                door_id = self.policy_handler.top_map_mdp.get_door_id_from_waypoint(current_waypoint_name)
                 self.door_check_action_client.send_goal(door_check_goal)
                 self.door_check_action_client.wait_for_result()
                 door_status = self.door_check_action_client.get_result()
@@ -293,13 +300,14 @@ class MdpPlanner(object):
                     print 'door is closed'
                     doors_state[door_id] = 1
                     door_state = 1
+
                 if door_state == 2:
                     print 'going through door'
                     top_nav_goal = GotoNodeGoal()
                     top_nav_goal.target = split_action[2]
                     self.top_nav_action_client.send_goal(top_nav_goal)
                     self.top_nav_action_client.wait_for_result()
-                    current_waypoint = self.current_node
+                    self.policy_handler.top_map_mdp.waypoint_transitions_transversal_count[current_waypoint][current_min_index]+=1
                     doors_state[door_id] = 0
                     door_state = 0
                 elif door_state == 1:
@@ -315,7 +323,7 @@ class MdpPlanner(object):
                         self.door_wait_action_client.send_goal(door_wait_goal)
                         self.door_wait_action_client.wait_for_result()
                         door_status = self.door_wait_action_client.get_result()
-                        if door_status.opened == True:
+                        if door_status.is_open == True:
                             print 'door is open'
                             doors_state[door_id] = 2
                             door_state = 2
@@ -362,6 +370,7 @@ class MdpPlanner(object):
         self.monitored_nav_result=msg.status.status
 
     def execute_policy_cb(self, goal):
+        starttime = rospy.get_time()
         rospy.loginfo("started policy execution")
         if self.learning_travel_times:
             self.preempt_learning_cb()
@@ -461,7 +470,7 @@ class MdpPlanner(object):
                 self.door_wait_action_client.send_goal(door_wait_goal)
                 self.door_wait_action_client.wait_for_result()
                 door_status = self.door_wait_action_client.get_result()
-                if door_status.opened == True:
+                if door_status.is_open == True:
                     print 'door is open'
                     doors_state[door_id] = 2
                     door_state = 2
@@ -516,7 +525,9 @@ class MdpPlanner(object):
                 self.mdp_navigation_action.set_aborted()
                 return
 
+        endtime = rospy.get_time()
         print 'got to goal'
+        print 'Time taken: ' + str(endtime - starttime)
         self.mdp_navigation_action.set_succeeded()
         return
 

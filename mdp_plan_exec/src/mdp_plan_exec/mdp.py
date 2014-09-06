@@ -4,6 +4,7 @@
 import sys
 import rospy
 import math
+import copy
 
 from mongodb_store.message_store import MessageStoreProxy
 from strands_navigation_msgs.msg import TopologicalNode
@@ -218,9 +219,6 @@ class TopMapMdp(Mdp):
                     self.new_transitions[state_index][2][1][len(self.new_actions)-1] = [[state_index,2,0,1]]
                     self.new_rewards[state_index][2][1][len(self.new_actions)-1] = 120
                     self.new_actions.append('takedoor_' + self.waypoint_names[state_index] + '_' + edge.node)
-                    #print 'takedoor_' + self.waypoint_names[state_index] + '_' + edge.node
-                    #print 'stored action: ' + self.new_actions[len(self.new_actions)-1]
-                    #print 'waypoint: ' + str(state_index)
                     self.new_transitions[state_index][2][0][len(self.new_actions)-1] = [[target_index,0,0,1]]
                     self.new_rewards[state_index][2][0][len(self.new_actions)-1] = 15
                     self.new_actions.append('set_door' + str(door_id) + '_closed')
@@ -250,6 +248,7 @@ class TopMapMdp(Mdp):
             state_index=state_index+1
 
         self.n_new_actions = len(self.new_actions)
+        #print self.new_actions
 
     def read_top_map(self):
         msg_store = MessageStoreProxy(collection='topological_maps')
@@ -274,13 +273,13 @@ class TopMapMdp(Mdp):
 
     def update_nav_statistics(self):
         msg_store = MessageStoreProxy()
-
+        door_store = MessageStoreProxy(collection='door_stats')
         query_meta = {}
         query_meta["pointset"] = self.top_map
         #print self.top_map
         message_list = msg_store.query(NavStatistics._type, {}, query_meta)
-        wait_list = msg_store.query(DoorWaitStat._type, {}, query_meta)
-        check_list = msg_store.query(DoorCheckStat._type, {}, query_meta)
+        wait_list = door_store.query(DoorWaitStat._type, {}, {})
+        check_list = door_store.query(DoorCheckStat._type, {}, {})
         n_data=len(message_list)
         n_unprocessed_data=n_data
         total_door_checks = 0
@@ -377,7 +376,7 @@ class TopMapMdp(Mdp):
                                 new_transition.append([j,0,0,probability])
                     if new_transition is not None:
                         self.waypoint_transitions[source_index][action_index]=transition
-                        self.new_transitions[source_index][0][0][new_action_index] = new_transition
+                        self.new_transitions[source_index][2][0][new_action_index] = new_transition
             if 'check' in current_action:
                 #print 'found a door check'
                 n_data = len(check_list)
@@ -411,7 +410,7 @@ class TopMapMdp(Mdp):
                     fail_probability = 1-success_probability
                     new_transition = [[waypoint_id, 2, 0, success_probability]]
                     new_transition.append([waypoint_id, 1, 0, fail_probability])
-                    self.new_transitions[waypoint_id, 0, 0, new_action_index] = new_transition
+                    self.new_transitions[waypoint_id][0][0][new_action_index] = new_transition
                 else:
                     #in the case that there is no data or no success, assume a 50:50 chance
                     #print 'adding new door check'
@@ -549,7 +548,11 @@ class TopMapMdp(Mdp):
         action_id = self.new_actions.index('set_door' + str(door_id) + '_open')
         self.new_transitions[state_index][2][1][len(self.new_actions)-1] = False
         self.new_rewards[state_index][2][1][len(self.new_actions)-1] = 0
-        takedoor_action = (i for i in self.new_actions if i.startswith('takedoor_' + self.waypoint_names[state_index]))
+        for i in range(len(self.new_actions)):
+            a_copy = copy.copy(self.new_actions[i])
+            action = a_copy.split('_')
+            if action[0] == 'takedoor' and action[1] == self.waypoint_names[state_index]:
+                takedoor_action = a_copy
         action_id = self.new_actions.index(takedoor_action)
         self.new_transitions[state_index][2][0][len(self.new_actions)-1] = False
         self.new_rewards[state_index][2][0][len(self.new_actions)-1] = 0

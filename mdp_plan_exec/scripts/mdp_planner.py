@@ -432,11 +432,11 @@ class MdpPlanner(object):
                 #print dir(door_wait_goal)
                 door_goal = new_action[2]
                 door_wait_goal.target_pose.pose = self.policy_handler.top_map_mdp.get_waypoint_pose(door_goal)
-                door_wait_goal.timeout = 300
+                door_wait_goal.timeout = 100
                 self.door_wait_action_client.send_goal(door_wait_goal)
                 self.door_wait_action_client.wait_for_result()
                 door_status = self.door_wait_action_client.get_result()
-                if door_status.opened == True:
+                if door_status.is_open == True:
                     print 'door is open'
                     door_state = 2
                     wait_state = 1
@@ -446,7 +446,8 @@ class MdpPlanner(object):
                     wait_state = 1
                     total_waits += 1
                     closed_prob = self.policy_handler.top_map_mdp.get_door_closed_probability(current_waypoint, self.policy_handler.top_map_mdp.policy[waypoint_id][1][0])
-                    k = math.log(0.05, closed_prob)
+                    print 'Closed prob: ' + str(closed_prob)
+                    k = math.log(0.05, float(closed_prob))
                     print 'Attempts before replan: ' + str(k)
                     print 'Current attempts: ' + str(total_waits)
                     if total_waits >= k:
