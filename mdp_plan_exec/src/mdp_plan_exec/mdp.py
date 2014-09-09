@@ -303,7 +303,7 @@ class TopMapMdp(Mdp):
                     entry=message_list[j]
                     if current_action[1]==entry[0].origin and current_action[2]==entry[0].target and not entry[0].final_node == 'Unknown':
                         n_total_data=n_total_data+1
-                        expected_time=expected_time+float(entry[0].operation_time)-float(entry[0].time_to_waypoint)
+                        expected_time=expected_time+float(entry[0].operation_time)#-float(entry[0].time_to_waypoint)
                         outcomes_count[self.waypoint_names.index(entry[0].final_node)]+=1
                         total_outcomes_count=total_outcomes_count+1
                         del message_list[j]
@@ -531,34 +531,38 @@ class TopMapMdp(Mdp):
         waypoint_id = self.waypoint_names.index(waypoint_name)
         new_action_index = self.new_actions.index(new_action)
         transitions = self.new_transitions[waypoint_id][1][0][new_action_index]
-        for trans in transitions:
-            if (trans[1] == 1):
-                prob = trans[3]
+        if transitions is not False:
+            for trans in transitions:
+                if (trans[1] == 1):
+                    prob = trans[3]
+        else:
+            prob = 0.0
         return prob
 
     def delete_closed_door(self, waypoint_name):
         state_index = self.waypoint_names.index(waypoint_name)
         door_id = self.nearside_door_waypoint_names.index(waypoint_name)
         action_id = self.new_actions.index('check_door' + str(door_id))
-        self.new_transitions[state_index][0][0][len(self.new_actions)-1] = False
-        self.new_rewards[state_index][0][0][len(self.new_actions)-1] = 0
+        self.new_transitions[state_index][0][0][action_id] = False
+        self.new_rewards[state_index][0][0][action_id] = 0
         action_id = self.new_actions.index('wait_for_door' + str(door_id))
-        self.new_transitions[state_index][1][0][len(self.new_actions)-1] = False
-        self.new_rewards[state_index][1][0][len(self.new_actions)-1] = 0
+        self.new_transitions[state_index][1][0][action_id] = False
+        self.new_rewards[state_index][1][0][action_id] = 0
         action_id = self.new_actions.index('set_door' + str(door_id) + '_open')
-        self.new_transitions[state_index][2][1][len(self.new_actions)-1] = False
-        self.new_rewards[state_index][2][1][len(self.new_actions)-1] = 0
+        self.new_transitions[state_index][2][1][action_id] = False
+        self.new_rewards[state_index][2][1][action_id] = 0
+        takedoor_action = 'none'
         for i in range(len(self.new_actions)):
             a_copy = copy.copy(self.new_actions[i])
             action = a_copy.split('_')
             if action[0] == 'takedoor' and action[1] == self.waypoint_names[state_index]:
-                takedoor_action = a_copy
+                takedoor_action = self.new_actions[i]
         action_id = self.new_actions.index(takedoor_action)
-        self.new_transitions[state_index][2][0][len(self.new_actions)-1] = False
-        self.new_rewards[state_index][2][0][len(self.new_actions)-1] = 0
+        self.new_transitions[state_index][2][0][action_id] = False
+        self.new_rewards[state_index][2][0][action_id] = 0
         action_id = self.new_actions.index('set_door' + str(door_id) + '_closed')
-        self.new_transitions[state_index][1][1][len(self.new_actions)-1] = False
-        self.new_rewards[state_index][1][1][len(self.new_actions)-1] = 0
+        self.new_transitions[state_index][1][1][action_id] = False
+        self.new_rewards[state_index][1][1][action_id] = 0
 
 class ProductMdp(Mdp):
 

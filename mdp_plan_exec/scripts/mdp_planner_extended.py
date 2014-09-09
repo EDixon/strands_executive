@@ -4,7 +4,7 @@ import sys
 import rospy
 import os
 import math
-
+import random
 
 #from mdp_plan_exec.prism_client import PrismClient
 #from mdp_plan_exec.mdp import TopMapMdp, ProductMdp
@@ -236,6 +236,7 @@ class MdpPlanner(object):
         current_wait_state = 0
         n_doors = self.policy_handler.top_map_mdp.n_doors
         doors_state = []
+        waiting_failed = False
         for i in range(n_doors):
             doors_state.append(0)
         while self.learning_travel_times:
@@ -256,17 +257,23 @@ class MdpPlanner(object):
             #waypoint_transitions_transversal_count has action index of waypoint actions only
             current_min=-1
             current_min_index=-1
+            possible_actions = []
             for i in range(0,self.policy_handler.top_map_mdp.n_waypoint_actions):
                 if current_waypoint_trans[i] is not False:
+                    possible_actions.append(i)
                     if current_min==-1:
                         current_min=current_trans_count[i]
                         current_min_index=i
                     elif current_trans_count[i]<current_min:
                         current_min=current_trans_count[i]
                         current_min_index=i
+            if waiting_failed == True:
+                print 'selecting random action'
+                current_min_index = random.choice(possible_actions)
             current_action=self.policy_handler.top_map_mdp.waypoint_actions[current_min_index]
             print 'The next action to take is: ' + current_action
             split_action = current_action.split('_')
+            waiting_failed = False
             if split_action[0] == 'goto':
                 print 'going somewhere'
                 top_nav_goal=GotoNodeGoal()
@@ -312,14 +319,14 @@ class MdpPlanner(object):
                     door_state = 0
                 elif door_state == 1:
                     attempts = 0
-                    while door_state == 1:
+                    keep_checking = True
+                    while keep_checking == True:
                         attempts += 1
                         print 'waiting for door'
                         door_wait_goal = DoorWaitGoal()
-                        #print dir(door_wait_goal)
                         door_goal = split_action[2]
                         door_wait_goal.target_pose.pose = self.policy_handler.top_map_mdp.get_waypoint_pose(door_goal)
-                        door_wait_goal.timeout = 300
+                        door_wait_goal.timeout = 60
                         self.door_wait_action_client.send_goal(door_wait_goal)
                         self.door_wait_action_client.wait_for_result()
                         door_status = self.door_wait_action_client.get_result()
@@ -343,13 +350,14 @@ class MdpPlanner(object):
                             self.policy_handler.top_map_mdp.waypoint_transitions_transversal_count[current_waypoint][current_min_index]+=1
                             door_state = 0
                             doors_state[door_id] = 0
+                            keep_checking = False
                         else:
                             print 'door is closed'
                             doors_state[door_id] = 1
                             door_state = 1
-                            if attempts > 5:
-                                break
-
+                            waiting_failed = True
+                            keep_checking = False
+                    doors_state = 0
 
 
         self.exp_times_handler.update_current_top_mdp("all_day")
@@ -370,7 +378,7 @@ class MdpPlanner(object):
         self.monitored_nav_result=msg.status.status
 
     def execute_policy_cb(self, goal):
-        starttime = rospy.get_time()
+
         rospy.loginfo("started policy execution")
         if self.learning_travel_times:
             self.preempt_learning_cb()
@@ -388,16 +396,17 @@ class MdpPlanner(object):
             print "task type not supported"
             self.mdp_navigation_action.set_aborted()
             return
-
         feedback=ExecutePolicyFeedback()
+        start_planning = rospy.get_time()
         feedback.expected_time=float(self.policy_handler.prism_client.get_policy(goal.time_of_day, specification))
+        print 'Planning time: ' + str(rospy.get_time() - start_planning)
         self.mdp_navigation_action.publish_feedback(feedback)
         if feedback.expected_time==float("inf"):
             rospy.logerr("The goal is unattainable with the current forbidden nodes. Aborting...")
             self.mdp_navigation_action.set_aborted()
             return
         result_dir=self.policy_handler.get_working_dir() + '/' + goal.time_of_day
-
+        starttime = rospy.get_time()
         self.policy_handler.top_map_mdp.set_reachability_policy(result_dir + "/adv.tra", result_dir + "/prod.sta")
 
         self.executing_policy=True
@@ -482,7 +491,10 @@ class MdpPlanner(object):
                     wait_state = 1
                     total_waits += 1
                     closed_prob = self.policy_handler.top_map_mdp.get_door_closed_probability(current_waypoint, self.policy_handler.top_map_mdp.policy[waypoint_id][1][0])
-                    k = math.log(0.05, closed_prob)
+                    if closed_prob == 1.0:
+                        k = 4
+                    else:
+                        k = math.log(0.05, (1.0 - closed_prob))
                     print 'Attempts before replan: ' + str(k)
                     print 'Current attempts: ' + str(total_waits)
                     if total_waits >= k:

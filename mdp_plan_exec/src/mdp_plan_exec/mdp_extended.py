@@ -201,7 +201,6 @@ class TopMapMdp(Mdp):
         self.n_waypoint_props = self.n_waypoints
         self.waypoint_props = [None]*self.n_waypoint_props
         self.waypoint_prop_map=[[False]*self.n_waypoint_props for i in range(self.n_waypoints)]
-        self.generate_door_ids()
         for i in range(0,self.n_waypoint_props):
             self.waypoint_prop_map[i][i]=True
         i = 0
@@ -237,7 +236,8 @@ class TopMapMdp(Mdp):
                     self.waypoint_actions[action_index] = 'goto_'+self.waypoint_names[state_index] + '_' + edge.node
                     action_index=action_index+1
             state_index=state_index+1
-
+        self.n_doors = doors
+        self.generate_door_ids()
         self.new_transitions = [[[[False]*((action_index+1) + (5*doors)) for i in range(self.n_wait_states)] for j in range(self.n_unique_doors)] for k in range(self.n_waypoints)]
         self.new_rewards = [[[[0]*((action_index+1) + (5*doors)) for i in range(self.n_wait_states)] for j in range(self.n_unique_doors)] for k in range(self.n_waypoints)]
         self.door_open_probs = [0]*doors
@@ -245,7 +245,6 @@ class TopMapMdp(Mdp):
         self.door_names = [None]*doors
         self.door_waypoints = [None]*doors
         self.nearside_door_waypoint_names = [None]*doors
-        self.n_doors = doors
         self.new_actions = []
         doors_state = []
         for i in range(self.n_doors):
@@ -342,7 +341,7 @@ class TopMapMdp(Mdp):
         return door_id
 
     def generate_door_lists(self):
-        n_doors = 4
+        n_doors = self.n_doors
         n_door_states = 3
         old_array = []
         k = 0
@@ -437,7 +436,7 @@ class TopMapMdp(Mdp):
                     entry=message_list[j]
                     if current_action[1]==entry[0].origin and current_action[2]==entry[0].target and not entry[0].final_node == 'Unknown':
                         n_total_data=n_total_data+1
-                        expected_time=expected_time+float(entry[0].operation_time)-float(entry[0].time_to_waypoint)
+                        expected_time=expected_time+float(entry[0].operation_time)#-float(entry[0].time_to_waypoint)
                         outcomes_count[self.waypoint_names.index(entry[0].final_node)]+=1
                         total_outcomes_count=total_outcomes_count+1
                         del message_list[j]
@@ -488,7 +487,7 @@ class TopMapMdp(Mdp):
                     entry=message_list[j]
                     if current_action[1]==entry[0].origin and current_action[2]==entry[0].target and not entry[0].final_node == 'Unknown':
                         n_total_data=n_total_data+1
-                        expected_time=expected_time+float(entry[0].operation_time)-float(entry[0].time_to_waypoint)
+                        expected_time=expected_time+float(entry[0].operation_time)#-float(entry[0].time_to_waypoint)
                         outcomes_count[self.waypoint_names.index(entry[0].final_node)]+=1
                         total_outcomes_count=total_outcomes_count+1
                         del message_list[j]
@@ -727,7 +726,11 @@ class TopMapMdp(Mdp):
             if self.unique_doors[k][door_id] == 2:
                 self.new_transitions[state_index][self.unique_door_ids[k]][1][len(self.new_actions)-1] = False
                 self.new_rewards[state_index][self.unique_door_ids[k]][1][len(self.new_actions)-1] = 0
-        takedoor_action = (i for i in self.new_actions if i.startswith('takedoor_' + self.waypoint_names[state_index]))
+        for i in range(len(self.new_actions)):
+            a_copy = copy.copy(self.new_actions[i])
+            action = a_copy.split('_')
+            if action[0] == 'takedoor' and action[1] == self.waypoint_names[state_index]:
+                takedoor_action = a_copy
         action_id = self.new_actions.index(takedoor_action)
         for k in range(self.n_unique_doors):
             if self.unique_doors[k][door_id] == 2:
